@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR Stream Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-dark: #0a0e27;
+            --bg-card: #151933;
+            --bg-card-hover: #1a1f3a;
+            --accent: #00d4ff;
+            --accent-glow: rgba(0, 212, 255, 0.3);
+            --text: #e0e6ed;
+            --text-dim: #8892a6;
+            --success: #00ff88;
+            --warning: #ffaa00;
+            --error: #ff4466;
+            --border: rgba(255, 255, 255, 0.1);
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
+            color: var(--text);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        .header {
+            background: rgba(21, 25, 51, 0.8);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border);
+            padding: 1.5rem 2rem;
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+        }
+
+        .header-content {
+            max-width: 1600px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, var(--accent), #0099cc);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+           box-shadow: 0 0 20px var(--accent-glow);
+        }
+
+        .logo h1 {
+            font-size: 1.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent), #fff);
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .status-badge {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: rgba(0, 255, 136, 0.1);
+            border: 1px solid var(--success);
+            border-radius: 20px;
+            font-size: 0.875rem;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            background: var(--success);
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .clients-section {
+            margin-bottom: 2rem;
+        }
+
+        .section-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .client-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .client-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .client-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--accent), #0099cc);
+            transform: scaleX(0);
+            transition: transform 0.3s ease;
+        }
+
+        .client-card:hover {
+            background: var(--bg-card-hover);
+            border-color: var(--accent);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px var(--accent-glow);
+        }
+
+        .client-card:hover::before {
+            transform: scaleX(1);
+        }
+
+        .client-card.active {
+            border-color: var(--accent);
+            background: var(--bg-card-hover);
+            box-shadow: 0 0 30px var(--accent-glow);
+        }
+
+        .client-card.active::before {
+            transform: scaleX(1);
+        }
+
+        .client-id {
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: var(--accent);
+        }
+
+        .client-stats {
+            font-size: 0.875rem;
+            color: var(--text-dim);
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .viewer-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        @media (max-width: 1200px) {
+            .viewer-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .stream-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stream-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .stream-title {
+            font-size: 1.125rem;
+            font-weight: 600;
+        }
+
+        .stream-badge {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.75rem;
+            background: rgba(0, 212, 255, 0.2);
+            border: 1px solid var(--accent);
+            border-radius: 12px;
+        }
+
+        .stream-viewer {
+            position: relative;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            aspect-ratio: 16 / 9;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .stream-viewer img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .no-stream {
+            color: var(--text-dim);
+            font-size: 0.875rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .no-stream-icon {
+            font-size: 3rem;
+            opacity: 0.3;
+        }
+
+        .matrix-display {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+        }
+
+        .matrix-grid {
+            display: grid;
+            gap: 1rem;
+        }
+
+        .matrix-item {
+            background: rgba(0, 212, 255, 0.05);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+        }
+
+        .matrix-name {
+            font-size: 0.875rem;
+            color: var(--accent);
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+        }
+
+        .matrix-content {
+            font-family: 'Courier New', monospace;
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            white-space: pre;
+            overflow-x: auto;
+        }
+
+        .info-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+        }
+
+        .info-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1.5rem;
+            text-align: center;
+        }
+
+        .info-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--accent);
+            margin-bottom: 0.5rem;
+        }
+
+        .info-label {
+            font-size: 0.875rem;
+            color: var(--text-dim);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 4rem 2rem;
+            color: var(--text-dim);
+        }
+
+        .empty-icon {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+            opacity: 0.3;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(0, 212, 255, 0.3);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-content">
+            <div class="logo">
+                <div class="logo-icon">📡</div>
+                <h1>AR Stream Dashboard</h1>
+            </div>
+            <div class="status-badge">
+                <div class="status-dot"></div>
+                <span id="connection-status">Connected</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Connected Clients -->
+        <div class="clients-section">
+            <h2 class="section-title">
+                <span>Connected Clients</span>
+                <span id="client-count" style="color: var(--accent); font-size: 1rem;">(0)</span>
+            </h2>
+            <div id="client-list" class="client-list">
+                <!-- Clients will be inserted here -->
+            </div>
+        </div>
+
+        <!-- Stream Viewers -->
+        <div id="stream-section" style="display: none;">
+            <h2 class="section-title">
+                Live Stream - <span id="selected-client-id" style="color: var(--accent);"></span>
+            </h2>
+
+            <!-- Video Streams -->
+            <div class="viewer-grid">
+                <div class="stream-card">
+                    <div class="stream-header">
+                        <h3 class="stream-title">RGB Camera</h3>
+                        <span class="stream-badge">Live</span>
+                    </div>
+                    <div class="stream-viewer">
+                        <img id="rgb-stream" src="" alt="RGB Stream" style="display: none;">
+                        <div id="rgb-placeholder" class="no-stream">
+                            <div class="no-stream-icon">📷</div>
+                            <span>Waiting for RGB stream...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="stream-card">
+                    <div class="stream-header">
+                        <h3 class="stream-title">Depth Map</h3>
+                        <span class="stream-badge">Live</span>
+                    </div>
+                    <div class="stream-viewer">
+                        <img id="depth-stream" src="" alt="Depth Stream" style="display: none;">
+                        <div id="depth-placeholder" class="no-stream">
+                            <div class="no-stream-icon">🗺️</div>
+                            <span>Waiting for depth stream...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Camera Data -->
+            <div class="matrix-display">
+                <h3 class="section-title">Camera Data</h3>
+                <div class="matrix-grid" id="camera-data">
+                    <!-- Camera matrices will be inserted here -->
+                </div>
+            </div>
+
+            <!-- Stream Info -->
+            <div class="info-cards" style="margin-top: 1.5rem;">
+                <div class="info-card">
+                    <div class="info-value" id="frame-count">0</div>
+                    <div class="info-label">Frames Received</div>
+                </div>
+                <div class="info-card">
+                    <div class="info-value" id="fps-display">0</div>
+                    <div class="info-label">FPS</div>
+                </div>
+                <div class="info-card">
+                    <div class="info-value" id="resolution-display">-</div>
+                    <div class="info-label">Resolution</div>
+                </div>
+                <div class="info-card">
+                    <div class="info-value" id="tracking-state">-</div>
+                    <div class="info-label">Tracking State</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Empty State -->
+        <div id="empty-state" class="empty-state">
+            <div class="empty-icon">📱</div>
+            <h3>No AR Clients Connected</h3>
+            <p style="margin-top: 0.5rem;">Connect your Android device to start streaming AR data</p>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let selectedClient = null;
+        let frameCount = 0;
+        let lastFrameTime = Date.now();
+        let fpsHistory = [];
+
+        // Connect to status WebSocket
+        function connectStatusWS() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws/dashboard`;
+            
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                console.log('Connected to dashboard WebSocket');
+                document.getElementById('connection-status').textContent = 'Connected';
+                refreshClients();
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                handleDashboardUpdate(data);
+            };
+
+            ws.onclose = () => {
+                console.log('Disconnected from dashboard WebSocket');
+                document.getElementById('connection-status').textContent = 'Disconnected';
+                setTimeout(connectStatusWS, 3000);
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+        }
+
+        // Refresh client list
+        async function refreshClients() {
+            try {
+                const response = await fetch('/api/clients');
+                const data = await response.json();
+                updateClientList(data.clients);
+            } catch (error) {
+                console.error('Failed to fetch clients:', error);
+            }
+        }
+
+        // Update client list UI
+        function updateClientList(clients) {
+            const clientList = document.getElementById('client-list');
+            const emptyState = document.getElementById('empty-state');
+            const clientCount = document.getElementById('client-count');
+
+            clientCount.textContent = `(${clients.length})`;
+
+            if (clients.length === 0) {
+                clientList.innerHTML = '';
+                emptyState.style.display = 'block';
+                return;
+            }
+
+            emptyState.style.display = 'none';
+
+            clientList.innerHTML = clients.map(client => `
+                <div class="client-card ${selectedClient === client.client_id ? 'active' : ''}"
+                     onclick="selectClient('${client.client_id}')">
+                    <div class="client-id">${client.client_id}</div>
+                    <div class="client-stats">
+                        <div>Frames: ${client.frame_count}</div>
+                        <div>FPS: ${client.current_fps.toFixed(1)}</div>
+                        <div>Buffer: ${client.buffer_size}/${client.max_buffer_size}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Select a client to view
+        function selectClient(clientId) {
+            selectedClient = clientId;
+            document.getElementById('selected-client-id').textContent = clientId;
+            document.getElementById('stream-section').style.display = 'block';
+            
+            // Subscribe to client stream
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    action: 'subscribe',
+                    client_id: clientId
+                }));
+            }
+
+            // Update UI
+            updateClientList(Array.from(document.querySelectorAll('.client-card')).map(card => ({
+                client_id: card.querySelector('.client-id').textContent.trim()
+            })));
+        }
+
+        // Handle dashboard updates
+        function handleDashboardUpdate(data) {
+            if (data.type === 'clients_update') {
+                updateClientList(data.clients);
+            } else if (data.type === 'frame_update' && data.client_id === selectedClient) {
+                updateFrameDisplay(data);
+            }
+        }
+
+        // Update frame display
+        function updateFrameDisplay(data) {
+            console.log('Frame update received:', {
+                has_rgb: !!data.rgb_frame,
+                rgb_size: data.rgb_frame ? data.rgb_frame.length : 0,
+                has_depth: !!data.depth_frame,
+                depth_size: data.depth_frame ? data.depth_frame.length : 0,
+                has_camera: !!data.camera,
+                resolution: data.resolution
+            });
+            
+            frameCount++;
+            document.getElementById('frame-count').textContent = frameCount;
+
+           // Update FPS
+            const now = Date.now();
+            const delta = (now - lastFrameTime) / 1000;
+            lastFrameTime = now;
+            const fps = 1 / delta;
+            fpsHistory.push(fps);
+            if (fpsHistory.length > 10) fpsHistory.shift();
+            const avgFps = fpsHistory.reduce((a, b) => a + b, 0) / fpsHistory.length;
+            document.getElementById('fps-display').textContent = avgFps.toFixed(1);
+
+            // Update RGB stream
+            if (data.rgb_frame) {
+                console.log('Setting RGB image source...'); 
+                const rgbImg = document.getElementById('rgb-stream');
+                const rgbPlaceholder = document.getElementById('rgb-placeholder');
+                rgbImg.src = 'data:image/jpeg;base64,' + data.rgb_frame;
+                rgbImg.style.display = 'block';
+                rgbPlaceholder.style.display = 'none';
+                console.log('RGB image updated');
+            } else {
+                console.warn('No RGB frame in data!');
+            }
+
+            // Update depth stream
+            if (data.depth_frame) {
+                console.log('Setting depth image source...');
+                const depthImg = document.getElementById('depth-stream');
+                const depthPlaceholder = document.getElementById('depth-placeholder');
+                depthImg.src = 'data:image/png;base64,' + data.depth_frame;
+                depthImg.style.display = 'block';
+                depthPlaceholder.style.display = 'none';
+                console.log('Depth image updated');
+            } else {
+                console.log('No depth frame in data');
+            }
+
+            // Update camera data
+            if (data.camera) {
+                updateCameraData(data.camera);
+            }
+
+            // Update resolution
+            if (data.resolution) {
+                document.getElementById('resolution-display').textContent = 
+                    `${data.resolution.width}×${data.resolution.height}`;
+            }
+
+            // Update tracking state
+            if (data.tracking_state !== undefined) {
+                const states = ['STOPPED', 'PAUSED', 'TRACKING'];
+                document.getElementById('tracking-state').textContent = states[data.tracking_state] || 'UNKNOWN';
+            }
+        }
+
+        // Update camera data display
+        function updateCameraData(camera) {
+            const cameraDataDiv = document.getElementById('camera-data');
+            let html = '';
+
+            if (camera.pose_matrix) {
+                html += createMatrixCard('Pose Matrix (4×4)', formatMatrix(camera.pose_matrix, 4, 4));
+            }
+
+            if (camera.view_matrix) {
+                html += createMatrixCard('View Matrix (4×4)', formatMatrix(camera.view_matrix, 4, 4));
+            }
+
+            if (camera.projection_matrix) {
+                html += createMatrixCard('Projection Matrix (4×4)', formatMatrix(camera.projection_matrix, 4, 4));
+            }
+
+            if (camera.intrinsic_matrix) {
+                html += createMatrixCard('Intrinsic Matrix (3×3)', formatMatrix(camera.intrinsic_matrix, 3, 3));
+            }
+
+            cameraDataDiv.innerHTML = html;
+        }
+
+        //Create matrix card HTML
+        function createMatrixCard(name, content) {
+            return `
+                <div class="matrix-item">
+                    <div class="matrix-name">${name}</div>
+                    <div class="matrix-content">${content}</div>
+                </div>
+            `;
+        }
+
+        // Format matrix for display
+        function formatMatrix(arr, rows, cols) {
+            if (!arr || arr.length !== rows * cols) return 'Invalid matrix';
+            
+            let result = '';
+            for (let i = 0; i < rows; i++) {
+                for (let j = 0; j < cols; j++) {
+                    const val = arr[i * cols + j];
+                    result += val.toFixed(4).padStart(10, ' ') + ' ';
+                }
+                result += '\n';
+            }
+            return result;
+        }
+
+        // Initialize
+        connectStatusWS();
+        setInterval(refreshClients, 5000); // Refresh every 5 seconds
+    </script>
+</body>
+</html>

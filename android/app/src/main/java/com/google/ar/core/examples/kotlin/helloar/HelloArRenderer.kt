@@ -48,6 +48,7 @@ import com.google.ar.core.exceptions.CameraNotAvailableException
 import com.google.ar.core.exceptions.NotYetAvailableException
 import java.io.IOException
 import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import android.graphics.Bitmap
 import com.google.ar.core.examples.kotlin.helloar.network.ARStreamClient
 import com.google.ar.core.examples.kotlin.helloar.network.StreamConfig
@@ -332,26 +333,8 @@ class HelloArRenderer(val activity: HelloArActivity) :
       }
     }
 
-    // Stream AR data to server
-    dataCapture?.let { capture ->
-      if (camera.trackingState == TrackingState.TRACKING) {
-        streamingScope.launch {
-          val cameraFrameBitmap = extractCameraFrameBitmap(render)
-          camera.getViewMatrix(viewMatrix, 0)
-          camera.getProjectionMatrix(projectionMatrix, 0, Z_NEAR, Z_FAR)
-
-          capture.captureAndSend(
-            frame,
-            camera,
-            viewMatrix,
-            projectionMatrix,
-            cameraFrameBitmap
-          )
-
-          cameraFrameBitmap?.recycle()
-        }
-      }
-    }
+    // DON'T capture bitmap here - screen is still black!
+    // Will capture AFTER backgroundRenderer.drawBackground() is called
 
     // Handle one tap per frame.
     handleTap(frame, camera)
@@ -380,10 +363,40 @@ class HelloArRenderer(val activity: HelloArActivity) :
     }
 
     // -- Draw background
+    // Draw background FIRST - this renders the camera image to the screen
+    backgroundRenderer.drawBackground(render)
+    
+    // NOW capture the camera frame AFTER it's been rendered
+    // IMPORTANT: Extract bitmap SYNCHRONOUSLY on render thread
+    // If we do this in a coroutine, the framebuffer will be cleared by the next frame!
+    dataCapture?.let { capture ->
+      if (camera.trackingState == TrackingState.TRACKING) {
+        // Extract bitmap NOW, synchronously on the render thread
+        val cameraFrameBitmap = extractCameraFrameBitmap(render)
+        camera.getViewMatrix(viewMatrix, 0)
+        camera.getProjectionMatrix(projectionMatrix, 0, Z_NEAR, Z_FAR)
+        
+        // Make copies of the matrices for the coroutine
+        val viewMatrixCopy = viewMatrix.clone()
+        val projectionMatrixCopy = projectionMatrix.clone()
+
+        // NOW launch coroutine with the already-captured bitmap
+        streamingScope.launch {
+          capture.captureAndSend(
+            frame,
+            camera,
+            viewMatrixCopy,
+            projectionMatrixCopy,
+            cameraFrameBitmap
+          )
+
+          cameraFrameBitmap?.recycle()
+        }
+      }
+    }
     if (frame.timestamp != 0L) {
       // Suppress rendering if the camera did not produce the first frame yet. This is to avoid
       // drawing possible leftover data from previous sessions if the texture is reused.
-      backgroundRenderer.drawBackground(render)
     }
 
     // If not tracking, don't draw 3D objects.
@@ -595,17 +608,67 @@ class HelloArRenderer(val activity: HelloArActivity) :
       val width = viewportWidth
       val height = viewportHeight
 
+      Log.d(TAG, "Extracting camera frame: ${width}x${height}")
+
+      // IMPORTANT: Ensure all rendering commands are complete before reading
+      GLES30.glFinish()
+      
+      // Check current framebuffer binding
+      val framebufferBinding = IntArray(1)
+      GLES30.glGetIntegerv(GLES30.GL_FRAMEBUFFER_BINDING, framebufferBinding, 0)
+      Log.d(TAG, "Current framebuffer binding: ${framebufferBinding[0]} (should be 0 for default)")
+
       val buffer = ByteBuffer.allocateDirect(width * height * 4)
+      buffer.order(ByteOrder.nativeOrder())
+      
       GLES30.glReadPixels(0, 0, width, height, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, buffer)
       GLError.maybeThrowGLException("glReadPixels", "extractCameraFrameBitmap")
 
+      // Sample first few pixels for debugging
+      buffer.rewind()
+      val samplePixels = StringBuilder("First 10 pixels (RGBA): ")
+      for (i in 0 until minOf(10, width * height)) {
+        val r = buffer.get(i * 4).toInt() and 0xFF
+        val g = buffer.get(i * 4 + 1).toInt() and 0xFF
+        val b = buffer.get(i * 4 + 2).toInt() and 0xFF
+        val a = buffer.get(i * 4 + 3).toInt() and 0xFF
+        if (i < 3) samplePixels.append("[$r,$g,$b,$a] ")
+      }
+      Log.d(TAG, samplePixels.toString())
+
       val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+      buffer.rewind()
       bitmap.copyPixelsFromBuffer(buffer)
+
+      // Calculate mean pixel value for debugging
+      buffer.rewind()
+      var sum = 0L
+      val pixelCount = width * height
+      for (i in 0 until pixelCount * 4 step 4) {
+        // Average RGB channels (skip alpha)
+        sum += buffer.get(i).toInt() and 0xFF
+        sum += buffer.get(i + 1).toInt() and 0xFF
+        sum += buffer.get(i + 2).toInt() and 0xFF
+      }
+      val mean = sum / (pixelCount * 3.0)
+      Log.i(TAG, "Camera frame captured: ${width}x${height}, mean pixel value: ${"%.2f".format(mean)}")
+      
+      if (mean < 1.0) {
+        Log.e(TAG, "WARNING: Captured frame is all black! (mean=${"%.2f".format(mean)})")
+        Log.e(TAG, "  Possible causes:")
+        Log.e(TAG, "  1. Background not rendered yet")
+        Log.e(TAG, "  2. Wrong framebuffer bound")
+        Log.e(TAG, "  3. Viewport mismatch")
+        Log.e(TAG, "  Check viewport: ${viewportWidth}x${viewportHeight}")
+      }
 
       // Flip the bitmap vertically (OpenGL has origin at bottom-left)
       val matrix = android.graphics.Matrix()
       matrix.preScale(1.0f, -1.0f)
-      return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, false)
+      val flipped = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, false)
+      
+      bitmap.recycle() // Clean up intermediate bitmap
+      return flipped
     } catch (e: Exception) {
       Log.e(TAG, "Error extracting camera frame bitmap", e)
       return null
