@@ -48,6 +48,8 @@ class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
       }
     }
 
+  val connectionStatusView = root.findViewById<ConnectionStatusView>(R.id.connection_status_view)
+
   val session
     get() = activity.arCoreSessionHelper.session
 

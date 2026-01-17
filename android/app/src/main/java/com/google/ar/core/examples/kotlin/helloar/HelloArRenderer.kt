@@ -48,6 +48,14 @@ import com.google.ar.core.exceptions.CameraNotAvailableException
 import com.google.ar.core.exceptions.NotYetAvailableException
 import java.io.IOException
 import java.nio.ByteBuffer
+import android.graphics.Bitmap
+import com.google.ar.core.examples.kotlin.helloar.network.ARStreamClient
+import com.google.ar.core.examples.kotlin.helloar.network.StreamConfig
+import com.google.ar.core.examples.kotlin.helloar.capture.ARDataCapture
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /** Renders the HelloAR application using our example Renderer. */
 class HelloArRenderer(val activity: HelloArActivity) :
@@ -133,6 +141,15 @@ class HelloArRenderer(val activity: HelloArActivity) :
 
   val displayRotationHelper = DisplayRotationHelper(activity)
   val trackingStateHelper = TrackingStateHelper(activity)
+
+  // AR Streaming components
+  private var streamClient: ARStreamClient? = null
+  private var dataCapture: ARDataCapture? = null
+  private val streamingScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+  // Track viewport dimensions
+  private var viewportWidth: Int = 1
+  private var viewportHeight: Int = 1
 
   override fun onResume(owner: LifecycleOwner) {
     displayRotationHelper.onResume()
@@ -249,6 +266,9 @@ class HelloArRenderer(val activity: HelloArActivity) :
   override fun onSurfaceChanged(render: SampleRender, width: Int, height: Int) {
     displayRotationHelper.onSurfaceChanged(width, height)
     virtualSceneFramebuffer.resize(width, height)
+    // Store viewport dimensions for frame extraction
+    viewportWidth = width
+    viewportHeight = height
   }
 
   override fun onDrawFrame(render: SampleRender) {
@@ -309,6 +329,27 @@ class HelloArRenderer(val activity: HelloArActivity) :
       } catch (e: NotYetAvailableException) {
         // This normally means that depth data is not available yet. This is normal so we will not
         // spam the logcat with this.
+      }
+    }
+
+    // Stream AR data to server
+    dataCapture?.let { capture ->
+      if (camera.trackingState == TrackingState.TRACKING) {
+        streamingScope.launch {
+          val cameraFrameBitmap = extractCameraFrameBitmap(render)
+          camera.getViewMatrix(viewMatrix, 0)
+          camera.getProjectionMatrix(projectionMatrix, 0, Z_NEAR, Z_FAR)
+
+          capture.captureAndSend(
+            frame,
+            camera,
+            viewMatrix,
+            projectionMatrix,
+            cameraFrameBitmap
+          )
+
+          cameraFrameBitmap?.recycle()
+        }
       }
     }
 
@@ -519,6 +560,55 @@ class HelloArRenderer(val activity: HelloArActivity) :
       // For devices that support the Depth API, shows a dialog to suggest enabling
       // depth-based occlusion. This dialog needs to be spawned on the UI thread.
       activity.runOnUiThread { activity.view.showOcclusionDialogIfNeeded() }
+    }
+  }
+
+  fun startStreaming(config: StreamConfig) {
+    streamClient = ARStreamClient(config.serverUrl, config)
+    
+    // Set up connection status callback to update UI
+    streamClient?.setStatusCallback { status ->
+      activity.runOnUiThread {
+        activity.view.connectionStatusView.updateStatus(status)
+      }
+    }
+    
+    streamClient?.connect()
+    dataCapture = ARDataCapture(streamClient!!, config)
+    Log.i(TAG, "AR streaming started to ${config.serverUrl}")
+  }
+
+  fun stopStreaming() {
+    streamClient?.disconnect()
+    streamClient = null
+    dataCapture = null
+    Log.i(TAG, "AR streaming stopped")
+  }
+
+  private fun extractCameraFrameBitmap(render: SampleRender): Bitmap? {
+    try {
+      // Get the camera texture from the background renderer
+      val textureId = backgroundRenderer.cameraColorTexture.textureId
+
+      // For simplicity, we'll capture from the screen buffer
+      // In production, you might want to read directly from the camera texture
+      val width = viewportWidth
+      val height = viewportHeight
+
+      val buffer = ByteBuffer.allocateDirect(width * height * 4)
+      GLES30.glReadPixels(0, 0, width, height, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, buffer)
+      GLError.maybeThrowGLException("glReadPixels", "extractCameraFrameBitmap")
+
+      val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+      bitmap.copyPixelsFromBuffer(buffer)
+
+      // Flip the bitmap vertically (OpenGL has origin at bottom-left)
+      val matrix = android.graphics.Matrix()
+      matrix.preScale(1.0f, -1.0f)
+      return Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, false)
+    } catch (e: Exception) {
+      Log.e(TAG, "Error extracting camera frame bitmap", e)
+      return null
     }
   }
 

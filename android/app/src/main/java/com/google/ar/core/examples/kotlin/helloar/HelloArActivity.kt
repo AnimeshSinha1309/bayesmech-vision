@@ -33,6 +33,7 @@ import com.google.ar.core.exceptions.UnavailableApkTooOldException
 import com.google.ar.core.exceptions.UnavailableDeviceNotCompatibleException
 import com.google.ar.core.exceptions.UnavailableSdkTooOldException
 import com.google.ar.core.exceptions.UnavailableUserDeclinedInstallationException
+import com.google.ar.core.examples.kotlin.helloar.network.StreamConfig
 
 /**
  * This is a simple example that shows how to create an augmented reality (AR) application using the
@@ -92,6 +93,18 @@ class HelloArActivity : AppCompatActivity() {
 
     depthSettings.onCreate(this)
     instantPlacementSettings.onCreate(this)
+
+    // Initialize AR streaming
+    // TODO: Replace with your server IP address
+    val streamConfig = StreamConfig(
+      serverUrl = "ws://192.168.1.2:8080/ar-stream",
+      targetFps = 20,
+      sendRgbFrames = true,
+      sendDepthFrames = false,
+      rgbJpegQuality = 80,
+      enableAdaptiveQuality = true
+    )
+    renderer.startStreaming(streamConfig)
   }
 
   // Configure the session, using Lighting Estimation, and Depth mode.
@@ -140,5 +153,10 @@ class HelloArActivity : AppCompatActivity() {
   override fun onWindowFocusChanged(hasFocus: Boolean) {
     super.onWindowFocusChanged(hasFocus)
     FullScreenHelper.setFullScreenOnWindowFocusChanged(this, hasFocus)
+  }
+
+  override fun onDestroy() {
+    super.onDestroy()
+    renderer.stopStreaming()
   }
 }

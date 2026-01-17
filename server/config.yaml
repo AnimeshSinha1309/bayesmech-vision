@@ -1,0 +1,36 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+  max_connections: 5  # Support for future multi-client
+
+database:
+  path: "./data/ar_inference.db"
+  export_interval: 300  # Export JSON every 5 minutes
+
+buffer:
+  max_frames_per_client: 60  # Keep last 60 frames (~2-4 seconds at 15-30 FPS)
+
+processing:
+  # Segmentation DISABLED - no object detection
+  # segmentation_model: "yolov8n-seg.pt"
+  # confidence_threshold: 0.5
+
+  # Tracking
+  tracker_max_age: 30  # Frames to keep track alive without detection
+  tracker_min_hits: 3   # Minimum detections before track confirmed
+  tracker_iou_threshold: 0.3
+
+  # 3D reconstruction
+  assumed_object_heights:
+    person: 1.7
+    car: 1.5
+    bicycle: 1.2
+    default: 1.0
+
+  # Motion analysis
+  collision_detection_enabled: true
+  collision_threshold: 1.0  # meters
+  collision_time_horizon: 2.0  # seconds
+
+visualization:
+  enabled: false  # Visualization disabled (no segmentation data)
