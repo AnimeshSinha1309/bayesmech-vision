@@ -1,6 +1,7 @@
 package com.google.ar.core.examples.kotlin.helloar.capture
 
 import android.graphics.Bitmap
+import android.media.Image
 import android.util.Log
 import ar_stream.ArStream
 import com.google.ar.core.Camera
@@ -21,13 +22,20 @@ class ARDataCapture(
     private var lastSentTimestamp = 0L
     private val bandwidthMonitor = BandwidthMonitor()
     private var currentQuality = QualityLevel.HIGH
+    
+    // Depth tracking
+    private var depthFramesIncluded = 0
+    private var depthFramesMissing = 0
 
     suspend fun captureAndSend(
         frame: Frame,
         camera: Camera,
         viewMatrix: FloatArray,
         projectionMatrix: FloatArray,
-        cameraFrameBitmap: Bitmap?
+        cameraFrameBitmap: Bitmap?,
+        depthImage: Image?,  // Pre-acquired depth
+        imageWidth: Int,     // Pre-captured dimensions
+        imageHeight: Int
     ) = withContext(Dispatchers.IO) {
         try {
             // Throttle based on target FPS
@@ -48,7 +56,10 @@ class ARDataCapture(
                 camera,
                 viewMatrix,
                 projectionMatrix,
-                cameraFrameBitmap
+                cameraFrameBitmap,
+                depthImage,     // Pass pre-acquired depth
+                imageWidth,     // Pass pre-captured dimensions
+                imageHeight
             )
 
             // Send frame
@@ -62,8 +73,11 @@ class ARDataCapture(
             frameNumber++
 
             if (frameNumber % 30 == 0) {
-                Log.d(TAG, "Sent frame $frameNumber, quality: $currentQuality, " +
-                        "bandwidth: ${"%.2f".format(bandwidthMonitor.getCurrentBandwidthMbps())} Mbps")
+                val depthTotal = depthFramesIncluded + depthFramesMissing
+                val depthPercentage = if (depthTotal > 0) (depthFramesIncluded * 100f / depthTotal) else 0f
+                Log.i(TAG, "Sent frame $frameNumber, quality: $currentQuality, " +
+                        "bandwidth: ${"%.2f".format(bandwidthMonitor.getCurrentBandwidthMbps())} Mbps, " +
+                        "depth: $depthFramesIncluded/$depthTotal (${depthPercentage.toInt()}%)")
             }
 
         } catch (e: Exception) {
@@ -76,15 +90,17 @@ class ARDataCapture(
         camera: Camera,
         viewMatrix: FloatArray,
         projectionMatrix: FloatArray,
-        cameraFrameBitmap: Bitmap?
+        cameraFrameBitmap: Bitmap?,
+        depthImage: Image?,      // Pre-acquired depth
+        imageWidth: Int,         // Pre-captured dimensions
+        imageHeight: Int
     ): ArStream.ARFrame {
         val builder = ArStream.ARFrame.newBuilder()
             .setTimestampNs(frame.timestamp)
             .setFrameNumber(frameNumber)
 
         // Always include camera data (minimal overhead)
-        val imageWidth = cameraFrameBitmap?.width ?: 1920
-        val imageHeight = cameraFrameBitmap?.height ?: 1080
+        // Use pre-captured dimensions to avoid accessing potentially recycled bitmap
         builder.camera = CameraDataExtractor.extractCameraData(
             camera,
             viewMatrix,
@@ -103,11 +119,24 @@ class ARDataCapture(
             )
         }
 
-        // Add depth frame if enabled
+        // Add depth frame if enabled and available
         if (currentQuality.sendDepth && config.sendDepthFrames) {
-            val depthFrame = CameraDataExtractor.extractDepthFrame(frame, currentQuality.depthScale.toInt())
-            if (depthFrame != null) {
-                builder.depthFrame = depthFrame
+            if (depthImage != null) {
+                val depthFrame = CameraDataExtractor.processDepthImage(depthImage, currentQuality.depthScale.toInt())
+                if (depthFrame != null) {
+                    builder.depthFrame = depthFrame
+                    depthFramesIncluded++
+                } else {
+                    depthFramesMissing++
+                    if (frameNumber % 10 == 0) {
+                        Log.w(TAG, "✗ Depth processing failed for frame $frameNumber")
+                    }
+                }
+            } else {
+                depthFramesMissing++
+                if (frameNumber % 10 == 0) {
+                    Log.w(TAG, "✗ Depth not acquired for frame $frameNumber (total missing: $depthFramesMissing)")
+                }
             }
         }
 

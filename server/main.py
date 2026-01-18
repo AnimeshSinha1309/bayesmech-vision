@@ -268,6 +268,9 @@ async def get_clients():
                 'current_fps': round(stats['avg_fps_received'], 1),
                 'buffer_size': stats['buffer_size'],
                 'max_buffer_size': stats['max_size'],
+                'depth_percentage': stats['depth_percentage'],
+                'frames_with_depth': stats['frames_with_depth'],
+                'frames_without_depth': stats['frames_without_depth'],
             }
             clients_data.append(client_data)
     

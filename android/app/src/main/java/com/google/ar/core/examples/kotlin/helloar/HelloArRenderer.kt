@@ -367,31 +367,47 @@ class HelloArRenderer(val activity: HelloArActivity) :
     backgroundRenderer.drawBackground(render)
     
     // NOW capture the camera frame AFTER it's been rendered
-    // IMPORTANT: Extract bitmap SYNCHRONOUSLY on render thread
-    // if we do this in a coroutine, the framebuffer will be cleared by the next frame!
+    // IMPORTANT: Extract bitmap AND depth SYNCHRONOUSLY on render thread
+    // ARCore frames expire in ~33ms, so we MUST acquire depth NOW before async processing
     dataCapture?.let { capture ->
       if (camera.trackingState == TrackingState.TRACKING) {
-        // Extract bitmap NOW, synchronously on the render thread
-        // Using ARCore camera image directly (not screen buffer!)
+        // Extract RGB bitmap NOW, synchronously on the render thread
         val cameraFrameBitmap = extractCameraImageBitmap(frame)
+        
+        // Get bitmap dimensions NOW before coroutine (to avoid accessing recycled bitmap)
+        val imageWidth = cameraFrameBitmap?.width ?: 1920
+        val imageHeight = cameraFrameBitmap?.height ?: 1080
+        
         camera.getViewMatrix(viewMatrix, 0)
         camera.getProjectionMatrix(projectionMatrix, 0, Z_NEAR, Z_FAR)
+        
+        // CRITICAL: Also acquire depth image NOW on render thread!
+        // If we try to get it later in coroutine, frame will be stale -> DeadlineExceededException
+        val depthImage = try {
+          frame.acquireDepthImage16Bits()
+        } catch (e: Exception) {
+          null  // Depth not available - this is OK
+        }
         
         // Make copies of the matrices for the coroutine
         val viewMatrixCopy = viewMatrix.clone()
         val projectionMatrixCopy = projectionMatrix.clone()
 
-        // NOW launch coroutine with the already-captured bitmap
+        // NOW launch coroutine with pre-acquired bitmap AND depth image
         streamingScope.launch {
           capture.captureAndSend(
             frame,
             camera,
             viewMatrixCopy,
             projectionMatrixCopy,
-            cameraFrameBitmap
+            cameraFrameBitmap,
+            depthImage,  // Pass pre-acquired depth image
+            imageWidth,  // Pass pre-captured dimensions
+            imageHeight
           )
 
           cameraFrameBitmap?.recycle()
+          depthImage?.close()  // Close depth image after use
         }
       }
     }
@@ -610,9 +626,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
       
       val width = cameraImage.width
       val height = cameraImage.height
-      
-      Log.d(TAG, "Extracting camera image directly from ARCore: ${width}x${height}, format=${cameraImage.format}")
-      
+
       // ARCore camera image is in YUV format
       // Convert YUV to RGB
       val yPlane = cameraImage.planes[0].buffer

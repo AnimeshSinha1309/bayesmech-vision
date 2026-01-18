@@ -17,6 +17,8 @@ class FrameBuffer:
         # Metadata
         self.frames_received = 0
         self.frames_processed = 0
+        self.frames_with_depth = 0
+        self.frames_without_depth = 0
         self.start_time = time.time()
 
     def add_frame(self, frame_data: dict):
@@ -24,6 +26,12 @@ class FrameBuffer:
         with self.lock:
             self.buffer.append(frame_data)
             self.frames_received += 1
+            
+            # Track depth availability
+            if 'depth_map' in frame_data and frame_data['depth_map'] is not None:
+                self.frames_with_depth += 1
+            else:
+                self.frames_without_depth += 1
 
     def get_latest_frame(self):
         """Get most recent frame"""
@@ -50,12 +58,18 @@ class FrameBuffer:
     def get_stats(self) -> dict:
         """Get buffer statistics"""
         elapsed = time.time() - self.start_time
+        total_frames = self.frames_with_depth + self.frames_without_depth
+        depth_percentage = (self.frames_with_depth / total_frames * 100) if total_frames > 0 else 0
+        
         return {
             'client_id': self.client_id,
             'buffer_size': len(self.buffer),
             'max_size': self.max_size,
             'frames_received': self.frames_received,
             'frames_processed': self.frames_processed,
+            'frames_with_depth': self.frames_with_depth,
+            'frames_without_depth': self.frames_without_depth,
+            'depth_percentage': round(depth_percentage, 1),
             'avg_fps_received': self.frames_received / elapsed if elapsed > 0 else 0,
             'avg_fps_processed': self.frames_processed / elapsed if elapsed > 0 else 0,
         }

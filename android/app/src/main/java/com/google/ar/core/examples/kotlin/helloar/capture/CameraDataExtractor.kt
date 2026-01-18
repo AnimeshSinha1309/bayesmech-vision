@@ -1,6 +1,7 @@
 package com.google.ar.core.examples.kotlin.helloar.capture
 
 import android.graphics.Bitmap
+import android.media.Image
 import android.opengl.Matrix
 import ar_stream.ArStream
 import com.google.ar.core.Camera
@@ -75,13 +76,11 @@ object CameraDataExtractor {
         depthScale: Int = 1
     ): ArStream.DepthFrame? {
         try {
-            // Try to acquire depth image
+            // Try to acquire depth image - will throw exception if not available
             val depthImage = frame.acquireDepthImage16Bits()
-            
+
             val width = depthImage.width / depthScale
             val height = depthImage.height / depthScale
-            
-            android.util.Log.d("CameraDataExtractor", "Extracting depth frame: ${depthImage.width}x${depthImage.height} -> ${width}x${height} (scale=$depthScale)")
             
             // Get depth data as ShortBuffer (16-bit unsigned integers in millimeters)
             val depthBuffer = depthImage.planes[0].buffer
@@ -118,14 +117,9 @@ object CameraDataExtractor {
                 if (depth < minDepth) minDepth = depth
                 if (depth > maxDepth) maxDepth = depth
             }
-            val meanDepth = sum / pixelCount
-            
-            android.util.Log.i("CameraDataExtractor", "Depth frame: ${width}x${height}, mean=${meanDepth}mm, min=${minDepth}mm, max=${maxDepth}mm, bytes=${depthBytes.size}")
-            
-            if (meanDepth == 0L && minDepth == 0 && maxDepth == 0) {
-                android.util.Log.e("CameraDataExtractor", "WARNING: Depth frame is all zeros!")
-            }
-            
+
+            // Send depth frame even if all zeros to keep in sync with RGB
+            // The dashboard will handle displaying it appropriately
             val result = ArStream.DepthFrame.newBuilder()
                 .setData(com.google.protobuf.ByteString.copyFrom(depthBytes))
                 .setWidth(width)
@@ -139,7 +133,49 @@ object CameraDataExtractor {
             
         } catch (e: Exception) {
             // Depth may not be available on all frames/devices
-            android.util.Log.w("CameraDataExtractor", "Failed to extract depth frame: ${e.message}")
+            android.util.Log.e("CameraDataExtractor", "✗ Depth extraction failed: ${e.javaClass.simpleName}: ${e.message}")
+            e.printStackTrace()
+            return null
+        }
+    }
+    
+    // Process pre-acquired depth image (no frame acquisition - image already acquired on render thread)
+    fun processDepthImage(
+        depthImage: Image,
+        depthScale: Int = 1
+    ): ArStream.DepthFrame? {
+        try {
+            val width = depthImage.width / depthScale
+            val height = depthImage.height / depthScale
+            
+            val depthBuffer = depthImage.planes[0].buffer
+            val depthBytes = ByteArray(width * height * 2)
+            
+            if (depthScale == 1) {
+                depthBuffer.rewind()
+                depthBuffer.get(depthBytes)
+            } else {
+                depthBuffer.rewind()
+                var destIdx = 0
+                for (y in 0 until height) {
+                    for (x in 0 until width) {
+                        val srcIdx = (y * depthScale * depthImage.width + x * depthScale) * 2
+                        depthBytes[destIdx++] = depthBuffer.get(srcIdx)
+                        depthBytes[destIdx++] = depthBuffer.get(srcIdx + 1)
+                    }
+                }
+            }
+
+            return ArStream.DepthFrame.newBuilder()
+                .setData(com.google.protobuf.ByteString.copyFrom(depthBytes))
+                .setWidth(width)
+                .setHeight(height)
+                .setMinDepthM(0.1f)
+                .setMaxDepthM(5.0f)
+                .build()
+            
+        } catch (e: Exception) {
+            android.util.Log.e("CameraDataExtractor", "✗ Depth processing failed: ${e.javaClass.simpleName}: ${e.message}")
             return null
         }
     }

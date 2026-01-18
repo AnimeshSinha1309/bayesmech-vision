@@ -518,6 +518,9 @@
                         <div>Frames: ${client.frame_count}</div>
                         <div>FPS: ${client.current_fps.toFixed(1)}</div>
                         <div>Buffer: ${client.buffer_size}/${client.max_buffer_size}</div>
+                        <div style="color: ${client.depth_percentage > 80 ? 'var(--success)' : client.depth_percentage > 50 ? 'var(--warning)' : 'var(--error)'}">
+                            Depth: ${client.depth_percentage}%
+                        </div>
                     </div>
                 </div>
             `).join('');
