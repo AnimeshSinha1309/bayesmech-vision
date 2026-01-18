@@ -100,7 +100,7 @@ class HelloArActivity : AppCompatActivity() {
       serverUrl = "ws://192.168.1.2:8080/ar-stream",
       targetFps = 20,
       sendRgbFrames = true,
-      sendDepthFrames = false,
+      sendDepthFrames = true,  // ✅ ENABLED
       rgbJpegQuality = 80,
       enableAdaptiveQuality = true
     )

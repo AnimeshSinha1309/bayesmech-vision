@@ -103,10 +103,13 @@ class ARDataCapture(
             )
         }
 
-        // TODO: Add depth frame extraction if needed
-        // if (config.sendDepthFrames) {
-        //     builder.depthFrame = extractDepthFrame(frame, currentQuality.depthScale)
-        // }
+        // Add depth frame if enabled
+        if (currentQuality.sendDepth && config.sendDepthFrames) {
+            val depthFrame = CameraDataExtractor.extractDepthFrame(frame, currentQuality.depthScale.toInt())
+            if (depthFrame != null) {
+                builder.depthFrame = depthFrame
+            }
+        }
 
         return builder.build()
     }

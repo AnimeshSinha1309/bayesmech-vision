@@ -368,11 +368,12 @@ class HelloArRenderer(val activity: HelloArActivity) :
     
     // NOW capture the camera frame AFTER it's been rendered
     // IMPORTANT: Extract bitmap SYNCHRONOUSLY on render thread
-    // If we do this in a coroutine, the framebuffer will be cleared by the next frame!
+    // if we do this in a coroutine, the framebuffer will be cleared by the next frame!
     dataCapture?.let { capture ->
       if (camera.trackingState == TrackingState.TRACKING) {
         // Extract bitmap NOW, synchronously on the render thread
-        val cameraFrameBitmap = extractCameraFrameBitmap(render)
+        // Using ARCore camera image directly (not screen buffer!)
+        val cameraFrameBitmap = extractCameraImageBitmap(frame)
         camera.getViewMatrix(viewMatrix, 0)
         camera.getProjectionMatrix(projectionMatrix, 0, Z_NEAR, Z_FAR)
         
@@ -599,78 +600,74 @@ class HelloArRenderer(val activity: HelloArActivity) :
   }
 
   private fun extractCameraFrameBitmap(render: SampleRender): Bitmap? {
+    return null  // Not used anymore - using ARCore camera image directly
+  }
+  
+  private fun extractCameraImageBitmap(frame: Frame): Bitmap? {
     try {
-      // Get the camera texture from the background renderer
-      val textureId = backgroundRenderer.cameraColorTexture.textureId
-
-      // For simplicity, we'll capture from the screen buffer
-      // In production, you might want to read directly from the camera texture
-      val width = viewportWidth
-      val height = viewportHeight
-
-      Log.d(TAG, "Extracting camera frame: ${width}x${height}")
-
-      // IMPORTANT: Ensure all rendering commands are complete before reading
-      GLES30.glFinish()
+      // Get camera image directly from ARCore (not from screen!)
+      val cameraImage = frame.acquireCameraImage()
       
-      // Check current framebuffer binding
-      val framebufferBinding = IntArray(1)
-      GLES30.glGetIntegerv(GLES30.GL_FRAMEBUFFER_BINDING, framebufferBinding, 0)
-      Log.d(TAG, "Current framebuffer binding: ${framebufferBinding[0]} (should be 0 for default)")
-
-      val buffer = ByteBuffer.allocateDirect(width * height * 4)
-      buffer.order(ByteOrder.nativeOrder())
+      val width = cameraImage.width
+      val height = cameraImage.height
       
-      GLES30.glReadPixels(0, 0, width, height, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, buffer)
-      GLError.maybeThrowGLException("glReadPixels", "extractCameraFrameBitmap")
-
-      // Sample first few pixels for debugging
-      buffer.rewind()
-      val samplePixels = StringBuilder("First 10 pixels (RGBA): ")
-      for (i in 0 until minOf(10, width * height)) {
-        val r = buffer.get(i * 4).toInt() and 0xFF
-        val g = buffer.get(i * 4 + 1).toInt() and 0xFF
-        val b = buffer.get(i * 4 + 2).toInt() and 0xFF
-        val a = buffer.get(i * 4 + 3).toInt() and 0xFF
-        if (i < 3) samplePixels.append("[$r,$g,$b,$a] ")
+      Log.d(TAG, "Extracting camera image directly from ARCore: ${width}x${height}, format=${cameraImage.format}")
+      
+      // ARCore camera image is in YUV format
+      // Convert YUV to RGB
+      val yPlane = cameraImage.planes[0].buffer
+      val uPlane = cameraImage.planes[1].buffer
+      val vPlane = cameraImage.planes[2].buffer
+      
+      val ySize = yPlane.remaining()
+      val uSize = uPlane.remaining()
+      val vSize = vPlane.remaining()
+      
+      val nv21 = ByteArray(ySize + uSize + vSize)
+      
+      // Copy Y
+      yPlane.get(nv21, 0, ySize)
+      
+      // Copy V and U (interleaved for NV21)
+      vPlane.get(nv21, ySize, vSize)
+      uPlane.get(nv21, ySize + vSize, uSize)
+      
+      // Convert NV21 to RGB
+      val yuvImage = android.graphics.YuvImage(nv21, android.graphics.ImageFormat.NV21, width, height, null)
+      val out = java.io.ByteArrayOutputStream()
+      yuvImage.compressToJpeg(android.graphics.Rect(0, 0, width, height), 100, out)
+      val imageBytes = out.toByteArray()
+      
+      val bitmap = android.graphics.BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+      
+      // Calculate mean for debugging
+      val pixels = IntArray(bitmap.width * bitmap.height)
+      bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+      
+      var sumR = 0L
+      var sumG = 0L
+      var sumB = 0L
+      for (pixel in pixels) {
+        sumR += (pixel shr 16) and 0xFF
+        sumG += (pixel shr 8) and 0xFF
+        sumB += pixel and 0xFF
       }
-      Log.d(TAG, samplePixels.toString())
-
-      val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-      buffer.rewind()
-      bitmap.copyPixelsFromBuffer(buffer)
-
-      // Calculate mean pixel value for debugging
-      buffer.rewind()
-      var sum = 0L
-      val pixelCount = width * height
-      for (i in 0 until pixelCount * 4 step 4) {
-        // Average RGB channels (skip alpha)
-        sum += buffer.get(i).toInt() and 0xFF
-        sum += buffer.get(i + 1).toInt() and 0xFF
-        sum += buffer.get(i + 2).toInt() and 0xFF
-      }
-      val mean = sum / (pixelCount * 3.0)
-      Log.i(TAG, "Camera frame captured: ${width}x${height}, mean pixel value: ${"%.2f".format(mean)}")
+      val pixelCount = pixels.size
+      val meanR = sumR / pixelCount
+      val meanG = sumG / pixelCount
+      val meanB = sumB / pixelCount
       
-      if (mean < 1.0) {
-        Log.e(TAG, "WARNING: Captured frame is all black! (mean=${"%.2f".format(mean)})")
-        Log.e(TAG, "  Possible causes:")
-        Log.e(TAG, "  1. Background not rendered yet")
-        Log.e(TAG, "  2. Wrong framebuffer bound")
-        Log.e(TAG, "  3. Viewport mismatch")
-        Log.e(TAG, "  Check viewport: ${viewportWidth}x${viewportHeight}")
-      }
-
-      // Flip the bitmap vertically (OpenGL has origin at bottom-left)
-      val matrix = android.graphics.Matrix()
-      matrix.preScale(1.0f, -1.0f)
-      val flipped = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, false)
+      Log.i(TAG, "Camera image extracted: ${bitmap.width}x${bitmap.height}, mean RGB=($meanR,$meanG,$meanB)")
       
-      bitmap.recycle() // Clean up intermediate bitmap
-      return flipped
+      if (meanR == 0L && meanG == 0L && meanB == 0L) {
+        Log.e(TAG, "WARNING: Camera image is all black!")
+      }
+      
+      cameraImage.close()
+      return bitmap
+      
     } catch (e: Exception) {
-      Log.e(TAG, "Error extracting camera frame bitmap", e)
+      Log.e(TAG, "Error extracting camera image from ARCore", e)
       return null
     }
   }

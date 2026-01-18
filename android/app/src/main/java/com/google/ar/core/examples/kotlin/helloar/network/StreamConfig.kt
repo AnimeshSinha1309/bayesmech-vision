@@ -28,11 +28,12 @@ enum class QualityLevel(
     val jpegQuality: Int,
     val depthScale: Float,
     val pointCloudSubsample: Float,
-    val sendRgb: Boolean
+    val sendRgb: Boolean,
+    val sendDepth: Boolean
 ) {
-    FULL(30, 1280, 720, 85, 1.0f, 1.0f, true),
-    HIGH(20, 960, 540, 80, 1.0f, 0.5f, true),
-    MEDIUM(15, 640, 480, 75, 0.5f, 0.2f, true),
-    LOW(10, 480, 360, 70, 0.5f, 0.1f, true),
-    MINIMAL(5, 320, 240, 60, 0.25f, 0.0f, true);
+    FULL(30, 1280, 720, 85, 1.0f, 1.0f, true, true),
+    HIGH(20, 960, 540, 80, 1.0f, 0.5f, true, true),
+    MEDIUM(15, 640, 480, 75, 2.0f, 0.2f, true, true),
+    LOW(10, 480, 360, 70, 2.0f, 0.1f, true, true),
+    MINIMAL(5, 320, 240, 60, 4.0f, 0.0f, true, false);
 }
