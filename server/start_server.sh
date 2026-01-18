@@ -3,7 +3,7 @@
 # This script will stop the current server and restart it with visible logs
 
 echo "============================================"
-echo "Restarting AR Stream Server"
+echo "Starting AR Stream Server"
 echo "============================================"
 echo ""
 

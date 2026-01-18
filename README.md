@@ -2,78 +2,7 @@
 
 A comprehensive system for streaming AR Core data from Android devices to a Python server for real-time object detection, tracking, 3D reconstruction, and motion analysis.
 
-## System Overview
-
-```
-Android AR Client (ARCore)  →  WebSocket (Binary)  →  Python Server (FastAPI)
-├─ RGB Frames (JPEG)                                  ├─ YOLOv8 Segmentation
-├─ Camera Pose Matrices                               ├─ Multi-Object Tracking
-├─ Depth Maps (optional)                              ├─ 3D Reconstruction
-└─ Motion Data                                        └─ Motion Analysis + Collision Detection
-                                                           ↓
-                                                      SQLite Database
-                                                      (Inference Results)
-```
-
-## Features
-
-### Android Client
-- Real-time ARCore data capture (30 FPS)
-- Adaptive quality streaming (FULL → MINIMAL based on bandwidth)
-- WebSocket binary streaming with Protocol Buffers
-- Automatic frame dropping for bandwidth management
-- Camera pose extraction from SLAM
-- RGB frame JPEG compression
-
-### Python Server
-- FastAPI WebSocket server
-- YOLOv8 instance segmentation
-- Multi-object tracking (IoU-based)
-- 3D position reconstruction from 2D detections
-- Motion analysis (velocity, trajectory prediction)
-- Collision detection
-- SQLite database for persistence
-- JSON export for analytics
-
-## Prerequisites
-
-### Android
-- Android Studio Arctic Fox or later
-- Android device with ARCore support
-- Min SDK 24 (Android 7.0)
-- Internet permission for network streaming
-
-### Python Server
-- Python 3.8 or later
-- CUDA-capable GPU (recommended for YOLOv8)
-- Protocol Buffers compiler (`protoc`)
-
 ## Setup Instructions
-
-### 1. Python Server Setup
-
-```bash
-cd server
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Generate protobuf Python code
-chmod +x generate_proto.sh
-./generate_proto.sh
-
-# Or manually:
-# cp ../proto/ar_stream.proto proto/
-# protoc --python_out=proto/ proto/ar_stream.proto
-
-# Edit config.yaml to adjust settings (optional)
-nano config.yaml
-
-# Start the server
-python main.py
-```
-
-The server will start at `ws://0.0.0.0:8080/ar-stream`
 
 ### 2. Android Client Setup
 
@@ -87,30 +16,6 @@ studio .
 ./gradlew build
 ```
 
-#### Configuration
-
-1. **Find your server IP address:**
-   ```bash
-   # On server machine (Linux/Mac)
-   ifconfig | grep "inet "
-
-   # On server machine (Windows)
-   ipconfig
-   ```
-
-2. **Update Android app with server IP:**
-
-   Edit `android/app/src/main/java/com/google/ar/core/examples/kotlin/helloar/HelloArActivity.kt`:
-
-   ```kotlin
-   val streamConfig = StreamConfig(
-       serverUrl = "ws://YOUR_SERVER_IP:8080/ar-stream",  // ← Change this
-       targetFps = 20,
-       sendRgbFrames = true,
-       rgbJpegQuality = 80,
-       enableAdaptiveQuality = true
-   )
-   ```
 
 3. **Build and run:**
    - Connect Android device via USB
@@ -119,40 +24,6 @@ studio .
    - Or: `./gradlew installDebug`
 
 ## Usage
-
-### Starting the System
-
-1. **Start Python server:**
-   ```bash
-   cd server
-   python main.py
-   ```
-
-   Output should show:
-   ```
-   INFO: Server started on 0.0.0.0:8080
-   INFO: Processing pipeline started
-   ```
-
-2. **Launch Android app:**
-   - Open the HelloAR app on your device
-   - Grant camera permissions
-   - Point camera at environment
-   - Streaming starts automatically when tracking begins
-
-3. **Monitor server status:**
-   ```bash
-   curl http://localhost:8080/
-   ```
-
-   Response:
-   ```json
-   {
-     "status": "running",
-     "active_connections": 1,
-     "clients": [...]
-   }
-   ```
 
 ### API Endpoints
 

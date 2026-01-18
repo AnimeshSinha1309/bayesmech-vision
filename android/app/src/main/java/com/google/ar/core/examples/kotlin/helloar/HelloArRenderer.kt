@@ -643,26 +643,6 @@ class HelloArRenderer(val activity: HelloArActivity) :
       // Calculate mean for debugging
       val pixels = IntArray(bitmap.width * bitmap.height)
       bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-      
-      var sumR = 0L
-      var sumG = 0L
-      var sumB = 0L
-      for (pixel in pixels) {
-        sumR += (pixel shr 16) and 0xFF
-        sumG += (pixel shr 8) and 0xFF
-        sumB += pixel and 0xFF
-      }
-      val pixelCount = pixels.size
-      val meanR = sumR / pixelCount
-      val meanG = sumG / pixelCount
-      val meanB = sumB / pixelCount
-      
-      Log.i(TAG, "Camera image extracted: ${bitmap.width}x${bitmap.height}, mean RGB=($meanR,$meanG,$meanB)")
-      
-      if (meanR == 0L && meanG == 0L && meanB == 0L) {
-        Log.e(TAG, "WARNING: Camera image is all black!")
-      }
-      
       cameraImage.close()
       return bitmap
       

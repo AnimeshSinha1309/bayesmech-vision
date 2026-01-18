@@ -1,22 +1,31 @@
+"""
+AR Stream Server - Simple WebSocket server for streaming AR data from Android devices
+
+Endpoints:
+  GET  /              - Dashboard web interface
+  GET  /api/clients  - List connected clients (for dashboard)
+  WS   /ar-stream    - AR data stream (from Android app)
+  WS   /ws/dashboard - Dashboard real-time updates
+
+This server receives RGB and depth data from Android ARCore apps and displays
+them in a real-time web dashboard. No processing or storage - just streaming.
+"""
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 import asyncio
 import logging
 import yaml
 from pathlib import Path
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageOps
 import io
-import time
 import base64
 import json
 from typing import Set
 
 from buffer.client_manager import ClientManager
-from processing.pipeline import ProcessingPipeline
-from storage.database import InferenceDatabase
 
 # Setup logging
 logging.basicConfig(
@@ -33,7 +42,6 @@ with open(config_path) as f:
 app = FastAPI(title="AR Stream Server", version="1.0.0")
 
 # Add CORS middleware to allow WebSocket connections from mobile devices
-# This fixes the 403 Forbidden error
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Allow all origins (mobile devices on same network)
@@ -46,8 +54,6 @@ logger.info("CORS middleware enabled - accepting connections from all origins")
 
 # Initialize components
 client_manager = ClientManager()
-database = InferenceDatabase(config['database']['path'])
-pipeline = ProcessingPipeline(config['processing'], database)
 
 # Import protobuf after ensuring it exists
 try:
@@ -72,12 +78,10 @@ latest_frames = {}
 
 @app.on_event("startup")
 async def startup():
-    await pipeline.start()
     logger.info(f"Server started on {config['server']['host']}:{config['server']['port']}")
 
 @app.on_event("shutdown")
 async def shutdown():
-    await pipeline.stop()
     logger.info("Server stopped")
 
 @app.websocket("/ar-stream")
@@ -119,8 +123,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
     # Register client
     client_manager.add_client(client_id, websocket)
-    database.register_client(client_id)
-    logger.info(f"Client {client_id} registered in client manager and database")
+    logger.info(f"Client {client_id} registered")
 
     try:
         frame_count = 0
@@ -150,9 +153,6 @@ async def websocket_endpoint(websocket: WebSocket):
             if frame_buffer:
                 frame_buffer.add_frame(frame_data)
                 client_manager.update_last_frame_time(client_id)
-
-            # Submit for processing (non-blocking)
-            await pipeline.submit_frame(frame_data)
             
             # Broadcast to dashboard (non-blocking)
             if dashboard_connections:
@@ -166,7 +166,6 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.error(f"  Error details: {str(e)}")
     finally:
         client_manager.remove_client(client_id)
-        database.disconnect_client(client_id)
         logger.info(f"Client {client_id} cleaned up and removed")
 
 
@@ -207,48 +206,41 @@ def extract_frame_data(ar_frame, client_id: str) -> dict:
     # RGB frame
     if ar_frame.HasField('rgb_frame'):
         rgb = ar_frame.rgb_frame
-        logger.info(f"  RGB frame present: format={rgb.format}, size={len(rgb.data)} bytes, {rgb.width}x{rgb.height}")
         
         try:
             if rgb.format == ar_stream_pb2.JPEG:
                 # Decode JPEG using Pillow
                 img = Image.open(io.BytesIO(rgb.data))
                 data['rgb_image'] = np.array(img)
-                logger.info(f"  ✓ RGB JPEG decoded: shape={data['rgb_image'].shape}, dtype={data['rgb_image'].dtype}")
             elif rgb.format == ar_stream_pb2.RGB_888:
                 # Raw RGB
                 data['rgb_image'] = np.frombuffer(
                     rgb.data, dtype=np.uint8
                 ).reshape(rgb.height, rgb.width, 3)
-                logger.info(f"  ✓ RGB raw decoded: shape={data['rgb_image'].shape}")
             else:
                 logger.error(f"  ✗ Unknown RGB format: {rgb.format}")
         except Exception as e:
-            logger.error(f"  ✗ Failed to decode RGB frame: {e}", exc_info=True)
+            logger.error(f"✗ Failed to decode RGB frame: {e}", exc_info=True)
     else:
-        logger.warning(f"  No RGB frame in frame {ar_frame.frame_number}")
+        logger.warning(f"✗ No RGB frame in frame {ar_frame.frame_number}")
 
     # Depth frame (optional)
     if ar_frame.HasField('depth_frame'):
         depth = ar_frame.depth_frame
-        logger.info(f"  Depth frame present: size={len(depth.data)} bytes, {depth.width}x{depth.height}")
         
         try:
             # Decode 16-bit depth (millimeters)
             depth_data = np.frombuffer(depth.data, dtype=np.uint16)
             data['depth_map'] = depth_data.reshape(depth.height, depth.width)
             data['depth_range'] = (depth.min_depth_m, depth.max_depth_m)
-            logger.info(f"  ✓ Depth decoded: shape={data['depth_map'].shape}, range=[{depth.min_depth_m}, {depth.max_depth_m}]")
-
             # Confidence map if present
             if depth.confidence:
                 conf_data = np.frombuffer(depth.confidence, dtype=np.uint8)
                 data['depth_confidence'] = conf_data.reshape(depth.height, depth.width)
-                logger.debug(f"  Depth confidence map included")
         except Exception as e:
-            logger.error(f"  ✗ Failed to decode depth frame: {e}", exc_info=True)
+            logger.error(f"✗ Failed to decode depth frame: {e}", exc_info=True)
     else:
-        logger.debug(f"  No depth frame in frame {ar_frame.frame_number}")
+        logger.debug(f"✗ No depth frame in frame {ar_frame.frame_number}")
 
     return data
 
@@ -258,24 +250,6 @@ async def get_dashboard():
     dashboard_path = Path(__file__).parent / 'templates' / 'dashboard.html'
     with open(dashboard_path, 'r') as f:
         return f.read()
-
-@app.get("/api/status")
-async def get_status():
-    """Get server status"""
-    all_clients = client_manager.get_all_clients()
-    client_stats = []
-
-    for client_id in all_clients:
-        buffer = client_manager.get_frame_buffer(client_id)
-        if buffer:
-            client_stats.append(buffer.get_stats())
-
-    return {
-        "status": "running",
-        "active_connections": len(all_clients),
-        "clients": client_stats,
-        "processing_queue_size": pipeline.processing_queue.qsize(),
-    }
 
 @app.get("/api/clients")
 async def get_clients():
@@ -302,62 +276,6 @@ async def get_clients():
         "count": len(clients_data)
     }
 
-@app.get("/tracks/{client_id}")
-async def get_client_tracks(client_id: str):
-    """Get active tracks for a client"""
-    tracks = database.get_active_tracks(client_id)
-    return {
-        "client_id": client_id,
-        "tracks": tracks,
-        "count": len(tracks)
-    }
-
-@app.get("/export/{client_id}")
-async def export_client_data(client_id: str):
-    """Export inference results for a client"""
-    output_dir = Path("./exports")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / f"{client_id.replace(':', '_')}_{int(time.time())}.json"
-
-    database.export_to_json(client_id, str(output_path))
-
-    return {
-        "message": "Export complete",
-        "file": str(output_path)
-    }
-
-@app.get("/health")
-async def health_check():
-    """Health check endpoint"""
-    return {"status": "healthy", "timestamp": time.time()}
-
-@app.get("/diagnostics")
-async def get_diagnostics():
-    """Diagnostic information for troubleshooting connections"""
-    import socket
-    hostname = socket.gethostname()
-    try:
-        local_ip = socket.gethostbyname(hostname)
-    except:
-        local_ip = "Unknown"
-    
-    return {
-        "server_status": "running",
-        "hostname": hostname,
-        "local_ip": local_ip,
-        "listening_on": {
-            "host": config['server']['host'],
-            "port": config['server']['port']
-        },
-        "websocket_endpoint": f"ws://{local_ip}:{config['server']['port']}/ar-stream",
-        "protobuf_status": "initialized" if ar_stream_pb2 else "not_initialized",
-        "active_connections": len(client_manager.get_all_clients()),
-        "processing_queue_size": pipeline.processing_queue.qsize(),
-        "instructions": {
-            "android_config": f"ws://{local_ip}:{config['server']['port']}/ar-stream",
-            "note": "Make sure your Android device is on the same network and replace the IP in HelloArActivity.kt"
-        }
-    }
 
 @app.websocket("/ws/dashboard")
 async def dashboard_websocket(websocket: WebSocket):
@@ -403,23 +321,15 @@ async def dashboard_websocket(websocket: WebSocket):
 def encode_image_to_base64(image_array: np.ndarray, format='JPEG') -> str:
     """Convert numpy array image to base64 string"""
     # Log image statistics
-    logger.info(f"  Encoding image: shape={image_array.shape}, dtype={image_array.dtype}, " +
-                f"mean={image_array.mean():.2f}, min={image_array.min()}, max={image_array.max()}")
-    
     img = Image.fromarray(image_array)
     buffer = io.BytesIO()
     img.save(buffer, format=format)
     buffer.seek(0)
     encoded = base64.b64encode(buffer.read()).decode('utf-8')
-    logger.info(f"  Encoded to base64: {len(encoded)} chars, first 50: {encoded[:50]}")
     return encoded
 
 def encode_depth_to_base64(depth_array: np.ndarray) -> str:
     """Convert depth map to base64 PNG (colorized)"""
-    # Log depth statistics
-    logger.info(f"  Encoding depth: shape={depth_array.shape}, dtype={depth_array.dtype}, " +
-                f"mean={depth_array.mean():.2f}, min={depth_array.min()}, max={depth_array.max()}")
-    
     # Normalize depth to 0-255
     depth_normalized = ((depth_array - depth_array.min()) / 
                        (depth_array.max() - depth_array.min()) * 255).astype(np.uint8)
@@ -433,7 +343,6 @@ def encode_depth_to_base64(depth_array: np.ndarray) -> str:
     img.save(buffer, format='PNG')
     buffer.seek(0)
     encoded = base64.b64encode(buffer.read()).decode('utf-8')
-    logger.info(f"  Depth encoded to base64: {len(encoded)} chars")
     return encoded
 
 async def broadcast_frame_to_dashboards(client_id: str, frame_data: dict):
@@ -458,22 +367,20 @@ async def broadcast_frame_to_dashboards(client_id: str, frame_data: dict):
             dashboard_msg['rgb_frame'] = rgb_base64
             height, width = frame_data['rgb_image'].shape[:2]
             dashboard_msg['resolution'] = {'width': width, 'height': height}
-            logger.info(f"  ✓ RGB encoded: {width}x{height}, base64 size={len(rgb_base64)} chars")
         except Exception as e:
             logger.error(f"  ✗ Failed to encode RGB image: {e}", exc_info=True)
     else:
-        logger.warning(f"  No RGB image in frame_data for broadcast")
+        logger.warning(f"✗ No RGB image in frame_data for broadcast")
     
     # Encode depth map if present
     if 'depth_map' in frame_data:
         try:
             depth_base64 = encode_depth_to_base64(frame_data['depth_map'])
             dashboard_msg['depth_frame'] = depth_base64
-            logger.info(f"  ✓ Depth encoded: base64 size={len(depth_base64)} chars")
         except Exception as e:
-            logger.error(f"  ✗ Failed to encode depth map: {e}", exc_info=True)
+            logger.error(f"✗ Failed to encode depth map: {e}", exc_info=True)
     else:
-        logger.debug(f"  No depth map in frame_data for broadcast")
+        logger.debug(f"✗ No depth map in frame_data for broadcast")
     
     # Add camera data
     if 'camera' in frame_data:
