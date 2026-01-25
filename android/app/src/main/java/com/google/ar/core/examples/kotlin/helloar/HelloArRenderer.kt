@@ -305,6 +305,11 @@ class HelloArRenderer(val activity: HelloArActivity) :
 
     val camera = frame.camera
 
+    // Update velocity from ARCore pose (if tracking)
+    if (camera.trackingState == TrackingState.TRACKING) {
+      sensorCollector?.updateVelocityFromPose(camera.pose.translation)
+    }
+
     // Update BackgroundRenderer state to match the depth settings.
     try {
       backgroundRenderer.setUseDepthVisualization(

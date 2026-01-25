@@ -428,6 +428,14 @@
                         <canvas id="accel-chart" style="max-height: 250px;"></canvas>
                     </div>
                     <div class="stream-card">
+                        <h4 class="stream-title" style="margin-bottom: 1rem;">Linear Velocity - Pose (m/s)</h4>
+                        <canvas id="vel-pose-chart" style="max-height: 250px;"></canvas>
+                    </div>
+                    <div class="stream-card">
+                        <h4 class="stream-title" style="margin-bottom: 1rem;">Linear Velocity - Accel (m/s)</h4>
+                        <canvas id="vel-accel-chart" style="max-height: 250px;"></canvas>
+                    </div>
+                    <div class="stream-card">
                         <h4 class="stream-title" style="margin-bottom: 1rem;">Angular Velocity (rad/s)</h4>
                         <canvas id="gyro-chart" style="max-height: 250px;"></canvas>
                     </div>
@@ -677,12 +685,14 @@
         }
 
         // Motion sensor charts
-        let accelChart, gyroChart, gravityChart, orientChart;
+        let accelChart, velPoseChart, velAccelChart, gyroChart, gravityChart, orientChart;
         const MAX_DATA_POINTS = 2000; // Enough for 300+ seconds at typical frame rates
         const WINDOW_DURATION = 300; // Show last 300 seconds (5 minutes)
         const FUTURE_WINDOW = 10; // Show 10 seconds into future
         const chartData = {
             accel: { x: [], y: [], z: [], timestamps: [] },
+            velPose: { x: [], y: [], z: [], timestamps: [] },
+            velAccel: { x: [], y: [], z: [], timestamps: [] },
             gyro: { x: [], y: [], z: [], timestamps: [] },
             gravity: { x: [], y: [], z: [], timestamps: [] },
             orient: { x: [], y: [], z: [], w: [], timestamps: [] }
@@ -734,6 +744,34 @@
                     ]
                 },
                 options: { ...commonOptions, scales: { ...commonOptions.scales, y: { ...commonOptions.scales.y, title: { display: true, text: 'm/s²', color: '#8892a6' } } } }
+            });
+
+            // Velocity from Pose chart
+            const velPoseCtx = document.getElementById('vel-pose-chart').getContext('2d');
+            velPoseChart = new Chart(velPoseCtx, {
+                type: 'line',
+                data: {
+                    datasets: [
+                        { label: 'X', data: [], borderColor: '#ff4466', backgroundColor: 'rgba(255, 68, 102, 0.1)', tension: 0.1, borderWidth: 2, pointRadius: 0 },
+                        { label: 'Y', data: [], borderColor: '#00ff88', backgroundColor: 'rgba(0, 255, 136, 0.1)', tension: 0.1, borderWidth: 2, pointRadius: 0 },
+                        { label: 'Z', data: [], borderColor: '#00d4ff', backgroundColor: 'rgba(0, 212, 255, 0.1)', tension: 0.1, borderWidth: 2, pointRadius: 0 }
+                    ]
+                },
+                options: { ...commonOptions, scales: { ...commonOptions.scales, y: { ...commonOptions.scales.y, title: { display: true, text: 'm/s', color: '#8892a6' } } } }
+            });
+
+            // Velocity from Acceleration chart
+            const velAccelCtx = document.getElementById('vel-accel-chart').getContext('2d');
+            velAccelChart = new Chart(velAccelCtx, {
+                type: 'line',
+                data: {
+                    datasets: [
+                        { label: 'X', data: [], borderColor: '#ff4466', backgroundColor: 'rgba(255, 68, 102, 0.1)', tension: 0.1, borderWidth: 2, pointRadius: 0 },
+                        { label: 'Y', data: [], borderColor: '#00ff88', backgroundColor: 'rgba(0, 255, 136, 0.1)', tension: 0.1, borderWidth: 2, pointRadius: 0 },
+                        { label: 'Z', data: [], borderColor: '#00d4ff', backgroundColor: 'rgba(0, 212, 255, 0.1)', tension: 0.1, borderWidth: 2, pointRadius: 0 }
+                    ]
+                },
+                options: { ...commonOptions, scales: { ...commonOptions.scales, y: { ...commonOptions.scales.y, title: { display: true, text: 'm/s', color: '#8892a6' } } } }
             });
 
             // Gyroscope (Angular Velocity) chart
@@ -823,6 +861,24 @@
                     motion.linear_acceleration.y,
                     motion.linear_acceleration.z);
                 updateChart(accelChart, chartData.accel, ['x', 'y', 'z'], now);
+            }
+
+            // Update velocity from pose
+            if (motion.linear_velocity_pose) {
+                addDataPoint(chartData.velPose,
+                    motion.linear_velocity_pose.x,
+                    motion.linear_velocity_pose.y,
+                    motion.linear_velocity_pose.z);
+                updateChart(velPoseChart, chartData.velPose, ['x', 'y', 'z'], now);
+            }
+
+            // Update velocity from acceleration
+            if (motion.linear_velocity_accel) {
+                addDataPoint(chartData.velAccel,
+                    motion.linear_velocity_accel.x,
+                    motion.linear_velocity_accel.y,
+                    motion.linear_velocity_accel.z);
+                updateChart(velAccelChart, chartData.velAccel, ['x', 'y', 'z'], now);
             }
 
             // Update gyroscope (angular velocity)

@@ -270,11 +270,18 @@ def extract_frame_data(ar_frame, client_id: str) -> dict:
                 'z': motion.linear_acceleration.z
             }
         
-        if motion.HasField('linear_velocity'):
-            data['motion']['linear_velocity'] = {
-                'x': motion.linear_velocity.x,
-                'y': motion.linear_velocity.y,
-                'z': motion.linear_velocity.z
+        if motion.HasField('linear_velocity_pose'):
+            data['motion']['linear_velocity_pose'] = {
+                'x': motion.linear_velocity_pose.x,
+                'y': motion.linear_velocity_pose.y,
+                'z': motion.linear_velocity_pose.z
+            }
+        
+        if motion.HasField('linear_velocity_accel'):
+            data['motion']['linear_velocity_accel'] = {
+                'x': motion.linear_velocity_accel.x,
+                'y': motion.linear_velocity_accel.y,
+                'z': motion.linear_velocity_accel.z
             }
         
         if motion.HasField('angular_velocity'):

@@ -85,8 +85,11 @@ message MotionData {
   // Device pose in world space
   Pose device_pose = 1;
 
-  // Linear velocity (m/s)
-  Vector3 linear_velocity = 2;
+  // Linear velocity from ARCore pose differentiation (m/s) - more accurate
+  Vector3 linear_velocity_pose = 2;
+  
+  // Linear velocity from acceleration integration (m/s) - less accurate, for comparison
+  Vector3 linear_velocity_accel = 9;
 
   // Angular velocity (rad/s)
   Vector3 angular_velocity = 3;

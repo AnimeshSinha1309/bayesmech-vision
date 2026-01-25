@@ -45,6 +45,13 @@ class SensorDataCollector(context: Context) : SensorEventListener {
     private val orientationAngles = FloatArray(3)
     private val orientation = AtomicReference(FloatArray(4) { 0f }) // Quaternion
     
+    // Velocity computation
+    private val velocityFromPose = AtomicReference(FloatArray(3) { 0f }) // From ARCore pose differentiation
+    private val velocityFromAccel = AtomicReference(FloatArray(3) { 0f }) // From acceleration integration
+    private var lastPosePosition: FloatArray? = null
+    private var lastPoseTime: Long = 0
+    private var lastAccelTime: Long = 0
+    
     private var isCollecting = false
     
     /**
@@ -140,6 +147,7 @@ class SensorDataCollector(context: Context) : SensorEventListener {
             }
             Sensor.TYPE_LINEAR_ACCELERATION -> {
                 linearAcceleration.set(event.values.clone())
+                updateVelocityFromAccel(event.values)
             }
         }
     }
@@ -190,11 +198,81 @@ class SensorDataCollector(context: Context) : SensorEventListener {
     }
     
     /**
+     * Update velocity estimate from ARCore camera pose.
+     * Call this with the current camera pose to compute velocity via differentiation.
+     * 
+     * @param translation Current camera position [x, y, z] in meters
+     */
+    fun updateVelocityFromPose(translation: FloatArray) {
+        val currentTime = System.nanoTime()
+        
+        if (lastPosePosition != null && lastPoseTime > 0) {
+            val dt = (currentTime - lastPoseTime) / 1e9 // Convert to seconds
+            
+            if (dt > 0 && dt < 0.5) { // Only compute if time delta is reasonable
+                val vx = (translation[0] - lastPosePosition!![0]) / dt.toFloat()
+                val vy = (translation[1] - lastPosePosition!![1]) / dt.toFloat()
+                val vz = (translation[2] - lastPosePosition!![2]) / dt.toFloat()
+                
+                velocityFromPose.set(floatArrayOf(vx, vy, vz))
+            }
+        }
+        
+        lastPosePosition = translation.clone()
+        lastPoseTime = currentTime
+    }
+    
+    /**
+     * Update velocity estimate from acceleration integration.
+     * Called automatically when linear acceleration sensor updates.
+     * 
+     * @param acceleration Current linear acceleration [x, y, z] in m/s²
+     */
+    private fun updateVelocityFromAccel(acceleration: FloatArray) {
+        val currentTime = System.nanoTime()
+        
+        if (lastAccelTime > 0) {
+            val dt = (currentTime - lastAccelTime) / 1e9 // Convert to seconds
+            
+            if (dt > 0 && dt < 0.5) { // Only integrate if time delta is reasonable
+                val currentVel = velocityFromAccel.get()
+                val vx = currentVel[0] + acceleration[0] * dt.toFloat()
+                val vy = currentVel[1] + acceleration[1] * dt.toFloat()
+                val vz = currentVel[2] + acceleration[2] * dt.toFloat()
+                
+                velocityFromAccel.set(floatArrayOf(vx, vy, vz))
+            }
+        }
+        
+        lastAccelTime = currentTime
+    }
+    
+    /**
      * Get current sensor data as protobuf MotionData message.
      * Thread-safe - can be called from any thread.
      */
     fun getCurrentMotionData(): ArStream.MotionData {
         val builder = ArStream.MotionData.newBuilder()
+        
+        // Linear velocity from ARCore pose differentiation
+        val velPose = velocityFromPose.get()
+        if (velPose.any { it != 0f }) {
+            builder.linearVelocityPose = ArStream.Vector3.newBuilder()
+                .setX(velPose[0])
+                .setY(velPose[1])
+                .setZ(velPose[2])
+                .build()
+        }
+        
+        // Linear velocity from acceleration integration
+        val velAccel = velocityFromAccel.get()
+        if (velAccel.any { it != 0f }) {
+            builder.linearVelocityAccel = ArStream.Vector3.newBuilder()
+                .setX(velAccel[0])
+                .setY(velAccel[1])
+                .setZ(velAccel[2])
+                .build()
+        }
         
         // Linear acceleration (use linear accel sensor if available, otherwise raw accel)
         val linAccel = linearAcceleration.get()
