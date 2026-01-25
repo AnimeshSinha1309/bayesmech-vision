@@ -86,11 +86,14 @@ async def shutdown():
 
 @app.websocket("/ar-stream")
 async def websocket_endpoint(websocket: WebSocket):
-    client_id = f"{websocket.client.host}:{websocket.client.port}"
+    # Temporary ID based on connection (will be replaced by device_id from first frame)
+    temp_client_id = f"{websocket.client.host}:{websocket.client.port}"
+    client_id = temp_client_id  # Will be updated when we get device_id
+    device_id = None
     
     # Log connection attempt details
     logger.info(f"=" * 60)
-    logger.info(f"WebSocket connection attempt from: {client_id}")
+    logger.info(f"WebSocket connection attempt from: {temp_client_id}")
     logger.info(f"  Client host: {websocket.client.host}")
     logger.info(f"  Client port: {websocket.client.port}")
     logger.info(f"  Headers: {dict(websocket.headers)}")
@@ -100,14 +103,14 @@ async def websocket_endpoint(websocket: WebSocket):
     # Then check requirements and close gracefully if needed
     try:
         await websocket.accept()
-        logger.info(f"✓ WebSocket connection ACCEPTED for client {client_id}")
+        logger.info(f"✓ WebSocket connection ACCEPTED for client {temp_client_id}")
     except Exception as e:
-        logger.error(f"✗ Failed to accept WebSocket connection from {client_id}: {e}", exc_info=True)
+        logger.error(f"✗ Failed to accept WebSocket connection from {temp_client_id}: {e}", exc_info=True)
         return
     
     # Now check if protobuf is initialized
     if ar_stream_pb2 is None:
-        logger.error(f"Protobuf not initialized - closing connection for {client_id}")
+        logger.error(f"Protobuf not initialized - closing connection for {temp_client_id}")
         try:
             await websocket.send_text("ERROR: Protobuf not initialized on server. Run generate_proto.sh")
             await websocket.close(code=1011, reason="Protobuf not initialized")
@@ -117,13 +120,9 @@ async def websocket_endpoint(websocket: WebSocket):
 
     # Send a welcome message to confirm successful setup
     try:
-        await websocket.send_text(f"Connected to AR Stream Server - Client ID: {client_id}")
+        await websocket.send_text(f"Connected to AR Stream Server - Temporary ID: {temp_client_id}")
     except Exception as e:
-        logger.error(f"Failed to send welcome message to {client_id}: {e}")
-
-    # Register client
-    client_manager.add_client(client_id, websocket)
-    logger.info(f"Client {client_id} registered")
+        logger.error(f"Failed to send welcome message to {temp_client_id}: {e}")
 
     try:
         frame_count = 0
@@ -132,18 +131,35 @@ async def websocket_endpoint(websocket: WebSocket):
             data = await websocket.receive_bytes()
             frame_count += 1
             
-            if frame_count == 1:
-                logger.info(f"→ First frame received from {client_id} ({len(data)} bytes)")
-            elif frame_count % 100 == 0:
-                logger.debug(f"→ Received frame #{frame_count} from {client_id} ({len(data)} bytes)")
-
             # Deserialize protobuf
             ar_frame = ar_stream_pb2.ARFrame()
             try:
                 ar_frame.ParseFromString(data)
             except Exception as e:
-                logger.error(f"Failed to parse protobuf from {client_id}: {e}")
+                logger.error(f"Failed to parse protobuf from {temp_client_id}: {e}")
                 continue
+
+            # On first frame, extract device_id and update client_id
+            if frame_count == 1:
+                if ar_frame.device_id:
+                    device_id = ar_frame.device_id
+                    # Check if this device was previously connected
+                    old_client = client_manager.find_client_by_device_id(device_id)
+                    if old_client:
+                        logger.info(f"✓ Device {device_id} reconnected (was {old_client}, now {temp_client_id})")
+                        # Remove old client entry
+                        client_manager.remove_client(old_client)
+                    client_id = device_id
+                else:
+                    logger.warning(f"No device_id in frame from {temp_client_id}, using IP:port as ID")
+                    client_id = temp_client_id
+                
+                # Register client with final ID
+                client_manager.add_client(client_id, websocket, device_id=device_id, connection_info=temp_client_id)
+                logger.info(f"✓ Client registered as {client_id}")
+                logger.info(f"→ First frame received from {client_id} ({len(data)} bytes)")
+            elif frame_count % 100 == 0:
+                logger.debug(f"→ Received frame #{frame_count} from {client_id} ({len(data)} bytes)")
 
             # Extract frame data
             frame_data = extract_frame_data(ar_frame, client_id)

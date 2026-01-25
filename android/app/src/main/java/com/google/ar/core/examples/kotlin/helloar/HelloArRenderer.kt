@@ -604,8 +604,15 @@ class HelloArRenderer(val activity: HelloArActivity) :
     }
     
     streamClient?.connect()
-    dataCapture = ARDataCapture(streamClient!!, config)
-    Log.i(TAG, "AR streaming started to ${config.serverUrl}")
+    
+    // Get stable device ID for client identification across reconnections
+    val deviceId = android.provider.Settings.Secure.getString(
+      activity.contentResolver,
+      android.provider.Settings.Secure.ANDROID_ID
+    )
+    
+    dataCapture = ARDataCapture(streamClient!!, config, deviceId)
+    Log.i(TAG, "AR streaming started to ${config.serverUrl} with device_id: $deviceId")
   }
 
   fun stopStreaming() {

@@ -91,10 +91,33 @@ class ConnectionStatusView @JvmOverloads constructor(
                 postDelayed({ 
                     visibility = View.GONE 
                 }, 3000)
+            } else if (status.isRetrying) {
+                // Retrying connection - show orange/yellow indicator
+                statusIndicator.background = context.getDrawable(android.R.drawable.presence_away)
+                statusText.text = "Reconnecting... (Attempt #${status.retryCount})"
+                
+                val retryInfo = if (status.nextRetryInMs != null && status.nextRetryInMs < 1000) {
+                    "Retry in ${status.nextRetryInMs}ms"
+                } else if (status.nextRetryInMs != null) {
+                    "Retry in ${status.nextRetryInMs / 1000}s"
+                } else {
+                    "Retrying now..."
+                }
+                
+                var details = status.lastError ?: "Connection lost"
+                details += " • $retryInfo"
+                
+                detailsText.text = details
+                visibility = View.VISIBLE
             } else if (status.lastError != null) {
                 // Connection failed - show persistent error
                 statusIndicator.background = context.getDrawable(android.R.drawable.presence_busy)
-                statusText.text = "✗ Connection Failed"
+                
+                if (status.retryCount > 0) {
+                    statusText.text = "✗ Connection Failed (${status.retryCount} retries)"
+                } else {
+                    statusText.text = "✗ Connection Failed"
+                }
                 
                 val timeStr = status.lastErrorTime?.let { 
                     dateFormat.format(Date(it)) 

@@ -1,5 +1,7 @@
 package com.google.ar.core.examples.kotlin.helloar.network
 
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import ar_stream.ArStream
 import okhttp3.*
@@ -16,7 +18,10 @@ data class ConnectionStatus(
     val lastSuccessfulConnection: Long? = null,
     val serverUrl: String = "",
     val responseCode: Int? = null,
-    val networkError: String? = null
+    val networkError: String? = null,
+    val isRetrying: Boolean = false,
+    val retryCount: Int = 0,
+    val nextRetryInMs: Long? = null
 )
 
 class ARStreamClient(
@@ -44,6 +49,20 @@ class ARStreamClient(
     
     private var connectionAttempts = 0
     private var statusCallback: ((ConnectionStatus) -> Unit)? = null
+
+    // Automatic reconnection
+    private val reconnectHandler = Handler(Looper.getMainLooper())
+    private var retryCount = 0
+    private var autoReconnectEnabled = true
+    private var isReconnecting = false
+    
+    // Retry delays in milliseconds (exponential backoff with cap)
+    private fun getRetryDelay(retryCount: Int): Long {
+        val baseDelay = 500L  // Start with 500ms
+        val maxDelay = 5000L  // Cap at 5 seconds
+        val delay = (baseDelay * Math.pow(1.5, retryCount.toDouble())).toLong()
+        return delay.coerceAtMost(maxDelay)
+    }
 
     // Metrics
     private var bytesSent = 0L
@@ -73,16 +92,24 @@ class ARStreamClient(
             webSocket = client.newWebSocket(request, object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
                     isConnected.set(true)
+                    isReconnecting = false
+                    retryCount = 0  // Reset retry count on successful connection
+                    
                     Log.i(TAG, "✓ WebSocket connected to $serverUrl")
                     Log.i(TAG, "  Response code: ${response.code}")
                     Log.i(TAG, "  Protocol: ${response.protocol}")
+                    
+                    // Cancel any pending reconnect attempts
+                    reconnectHandler.removeCallbacksAndMessages(null)
                     
                     updateStatus(ConnectionStatus(
                         isConnected = true,
                         connectionAttempts = connectionAttempts,
                         lastSuccessfulConnection = System.currentTimeMillis(),
                         serverUrl = serverUrl,
-                        responseCode = response.code
+                        responseCode = response.code,
+                        isRetrying = false,
+                        retryCount = 0
                     ))
                 }
 
@@ -104,8 +131,12 @@ class ARStreamClient(
                         lastErrorTime = System.currentTimeMillis(),
                         connectionAttempts = connectionAttempts,
                         serverUrl = serverUrl,
-                        responseCode = code
+                        responseCode = code,
+                        retryCount = retryCount
                     ))
+                    
+                    // Trigger reconnection
+                    scheduleReconnect()
                 }
 
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
@@ -118,8 +149,12 @@ class ARStreamClient(
                         lastErrorTime = System.currentTimeMillis(),
                         connectionAttempts = connectionAttempts,
                         serverUrl = serverUrl,
-                        responseCode = code
+                        responseCode = code,
+                        retryCount = retryCount
                     ))
+                    
+                    // Trigger reconnection
+                    scheduleReconnect()
                 }
 
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
@@ -143,8 +178,12 @@ class ARStreamClient(
                         connectionAttempts = connectionAttempts,
                         serverUrl = serverUrl,
                         responseCode = response?.code,
-                        networkError = t.javaClass.simpleName
+                        networkError = t.javaClass.simpleName,
+                        retryCount = retryCount
                     ))
+                    
+                    // Trigger reconnection
+                    scheduleReconnect()
                 }
             })
         } catch (e: Exception) {
@@ -155,15 +194,61 @@ class ARStreamClient(
                 lastErrorTime = System.currentTimeMillis(),
                 connectionAttempts = connectionAttempts,
                 serverUrl = serverUrl,
-                networkError = e.javaClass.simpleName
+                networkError = e.javaClass.simpleName,
+                retryCount = retryCount
             ))
+            
+            // Trigger reconnection
+            scheduleReconnect()
+        }
+    }
+
+    private fun scheduleReconnect() {
+        if (!autoReconnectEnabled || isReconnecting) {
+            return
+        }
+        
+        isReconnecting = true
+        retryCount++
+        
+        val delay = getRetryDelay(retryCount)
+        Log.i(TAG, "Scheduling reconnect #$retryCount in ${delay}ms")
+        
+        // Update status to show we're retrying
+        updateStatus(connectionStatus.copy(
+            isRetrying = true,
+            retryCount = retryCount,
+            nextRetryInMs = delay
+        ))
+        
+        reconnectHandler.postDelayed({
+            Log.i(TAG, "Auto-reconnect attempt #$retryCount")
+            // Reset isReconnecting before attempting to connect so subsequent failures can retry
+            isReconnecting = false
+            connect()
+        }, delay)
+    }
+
+    fun enableAutoReconnect(enabled: Boolean) {
+        autoReconnectEnabled = enabled
+        if (!enabled) {
+            reconnectHandler.removeCallbacksAndMessages(null)
+            isReconnecting = false
+            retryCount = 0
         }
     }
 
     fun disconnect() {
+        // Disable auto-reconnect when manually disconnecting
+        autoReconnectEnabled = false
+        reconnectHandler.removeCallbacksAndMessages(null)
+        
         webSocket?.close(1000, "Client disconnect")
         webSocket = null
         isConnected.set(false)
+        isReconnecting = false
+        retryCount = 0
+        
         Log.i(TAG, "WebSocket disconnected")
     }
 
@@ -173,7 +258,7 @@ class ARStreamClient(
 
     fun sendFrame(frame: ArStream.ARFrame) {
         if (!isConnected.get()) {
-            Log.w(TAG, "Not connected, dropping frame")
+            // Don't log this as it would spam the logs during reconnection
             framesDropped++
             return
         }
@@ -189,7 +274,9 @@ class ARStreamClient(
             bytesSent += bytes.size
         } else {
             framesDropped++
-            Log.w(TAG, "Failed to send frame")
+            if (framesSent % 30 == 0) {  // Log every 30th frame
+                Log.w(TAG, "Failed to send frame")
+            }
         }
     }
 
@@ -201,6 +288,8 @@ class ARStreamClient(
             "bytes_sent" to bytesSent,
             "avg_frame_size" to if (framesSent > 0) bytesSent / framesSent else 0,
             "connection_attempts" to connectionAttempts,
+            "retry_count" to retryCount,
+            "is_retrying" to isReconnecting,
             "last_error" to (connectionStatus.lastError ?: "None"),
             "server_url" to serverUrl
         )

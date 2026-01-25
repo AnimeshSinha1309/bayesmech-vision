@@ -15,7 +15,8 @@ import kotlinx.coroutines.withContext
 
 class ARDataCapture(
     private val streamClient: ARStreamClient,
-    private val config: StreamConfig
+    private val config: StreamConfig,
+    private val deviceId: String  // Stable device identifier
 ) {
     private val TAG = "ARDataCapture"
     private var frameNumber = 0
@@ -98,6 +99,7 @@ class ARDataCapture(
         val builder = ArStream.ARFrame.newBuilder()
             .setTimestampNs(frame.timestamp)
             .setFrameNumber(frameNumber)
+            .setDeviceId(deviceId)  // Include stable device ID
 
         // Always include camera data (minimal overhead)
         // Use pre-captured dimensions to avoid accessing potentially recycled bitmap

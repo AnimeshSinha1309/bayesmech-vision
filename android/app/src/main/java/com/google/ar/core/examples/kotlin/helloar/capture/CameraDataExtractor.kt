@@ -44,6 +44,10 @@ object CameraDataExtractor {
             bitmap
         }
 
+        // Capture dimensions BEFORE potentially recycling
+        val finalWidth = resizedBitmap.width
+        val finalHeight = resizedBitmap.height
+
         // Compress to JPEG
         val stream = ByteArrayOutputStream()
         resizedBitmap.compress(Bitmap.CompressFormat.JPEG, jpegQuality, stream)
@@ -57,8 +61,8 @@ object CameraDataExtractor {
         return ArStream.ImageFrame.newBuilder()
             .setData(com.google.protobuf.ByteString.copyFrom(jpegData))
             .setFormat(ArStream.ImageFormat.JPEG)
-            .setWidth(resizedBitmap.width)
-            .setHeight(resizedBitmap.height)
+            .setWidth(finalWidth)
+            .setHeight(finalHeight)
             .setQuality(jpegQuality)
             .build()
     }
