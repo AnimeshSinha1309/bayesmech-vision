@@ -183,4 +183,54 @@ object CameraDataExtractor {
             return null
         }
     }
+    fun extractARCoreData(
+        session: com.google.ar.core.Session
+    ): ArStream.ARCoreData {
+        val builder = ArStream.ARCoreData.newBuilder()
+        
+        // Extract planes
+        for (plane in session.getAllTrackables(com.google.ar.core.Plane::class.java)) {
+            // Only send tracking planes
+            if (plane.trackingState != com.google.ar.core.TrackingState.TRACKING) continue
+            
+            val planeBuilder = ArStream.Plane.newBuilder()
+                .setType(mapPlaneType(plane.type))
+                .setExtentX(plane.extentX)
+                .setExtentZ(plane.extentZ)
+            
+            // Center pose
+            val pose = plane.centerPose
+            planeBuilder.centerPose = ArStream.Pose.newBuilder()
+                .setPosition(ArStream.Vector3.newBuilder().setX(pose.tx()).setY(pose.ty()).setZ(pose.tz()))
+                .setRotation(ArStream.Quaternion.newBuilder().setX(pose.qx()).setY(pose.qy()).setZ(pose.qz()).setW(pose.qw()))
+                .build()
+            
+            // Polygon vertices
+            val polygon = plane.polygon
+            if (polygon != null) {
+                // Polygon is a FloatBuffer with X, Z coordinates
+                polygon.rewind()
+                while (polygon.remaining() >= 2) {
+                    val x = polygon.get()
+                    val z = polygon.get()
+                    planeBuilder.addPolygon(
+                        ArStream.Vector3.newBuilder().setX(x).setY(0f).setZ(z)
+                    )
+                }
+            }
+            
+            builder.addPlanes(planeBuilder)
+        }
+        
+        return builder.build()
+    }
+
+    private fun mapPlaneType(type: com.google.ar.core.Plane.Type): ArStream.PlaneType {
+        return when (type) {
+            com.google.ar.core.Plane.Type.HORIZONTAL_UPWARD_FACING -> ArStream.PlaneType.HORIZONTAL_UPWARD_FACING
+            com.google.ar.core.Plane.Type.HORIZONTAL_DOWNWARD_FACING -> ArStream.PlaneType.HORIZONTAL_DOWNWARD_FACING
+            com.google.ar.core.Plane.Type.VERTICAL -> ArStream.PlaneType.VERTICAL
+            else -> ArStream.PlaneType.PLANE_TYPE_UNKNOWN
+        }
+    }
 }

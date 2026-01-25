@@ -20,12 +20,10 @@ import android.util.Log
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.google.ar.core.Config
-import com.google.ar.core.Config.InstantPlacementMode
 import com.google.ar.core.Session
 import com.bayesmech.camalytics.common.helpers.CameraPermissionHelper
 import com.bayesmech.camalytics.common.helpers.DepthSettings
 import com.bayesmech.camalytics.common.helpers.FullScreenHelper
-import com.bayesmech.camalytics.common.helpers.InstantPlacementSettings
 import com.bayesmech.camalytics.common.samplerender.SampleRender
 import com.bayesmech.camalytics.common.helpers.ARCoreSessionLifecycleHelper
 import com.google.ar.core.exceptions.CameraNotAvailableException
@@ -49,7 +47,6 @@ class HelloArActivity : AppCompatActivity() {
   lateinit var view: HelloArView
   lateinit var renderer: HelloArRenderer
 
-  val instantPlacementSettings = InstantPlacementSettings()
   val depthSettings = DepthSettings()
 
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -92,7 +89,6 @@ class HelloArActivity : AppCompatActivity() {
     SampleRender(view.surfaceView, renderer, assets)
 
     depthSettings.onCreate(this)
-    instantPlacementSettings.onCreate(this)
 
     // Initialize AR streaming
     // TODO: Replace with your server IP address
@@ -119,14 +115,6 @@ class HelloArActivity : AppCompatActivity() {
             Config.DepthMode.AUTOMATIC
           } else {
             Config.DepthMode.DISABLED
-          }
-
-        // Instant Placement is used if it is configured in Hello AR's settings.
-        instantPlacementMode =
-          if (instantPlacementSettings.isInstantPlacementEnabled) {
-            InstantPlacementMode.LOCAL_Y_UP
-          } else {
-            InstantPlacementMode.DISABLED
           }
       }
     )

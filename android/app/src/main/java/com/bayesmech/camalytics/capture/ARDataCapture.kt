@@ -32,6 +32,7 @@ class ARDataCapture(
 
     suspend fun captureAndSend(
         frame: Frame,
+        session: com.google.ar.core.Session,
         camera: Camera,
         viewMatrix: FloatArray,
         projectionMatrix: FloatArray,
@@ -56,6 +57,7 @@ class ARDataCapture(
             // Build ARFrame
             val arFrame = buildARFrame(
                 frame,
+                session,
                 camera,
                 viewMatrix,
                 projectionMatrix,
@@ -91,6 +93,7 @@ class ARDataCapture(
 
     private fun buildARFrame(
         frame: Frame,
+        session: com.google.ar.core.Session,
         camera: Camera,
         viewMatrix: FloatArray,
         projectionMatrix: FloatArray,
@@ -151,6 +154,9 @@ class ARDataCapture(
             motionData.hasGravity() || motionData.hasOrientation()) {
             builder.motion = motionData
         }
+
+        // Add ARCore data (planes)
+        builder.arcore = CameraDataExtractor.extractARCoreData(session)
 
         return builder.build()
     }

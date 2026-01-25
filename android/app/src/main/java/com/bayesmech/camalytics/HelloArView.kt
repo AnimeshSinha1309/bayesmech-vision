@@ -25,7 +25,6 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import com.google.ar.core.Config
 import com.bayesmech.camalytics.common.helpers.SnackbarHelper
-import com.bayesmech.camalytics.common.helpers.TapHelper
 
 /** Contains UI elements for Hello AR. */
 class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
@@ -38,7 +37,6 @@ class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
           setOnMenuItemClickListener { item ->
             when (item.itemId) {
               R.id.depth_settings -> launchDepthSettingsMenuDialog()
-              R.id.instant_placement_settings -> launchInstantPlacementSettingsMenuDialog()
               else -> null
             } != null
           }
@@ -54,7 +52,6 @@ class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
     get() = activity.arCoreSessionHelper.session
 
   val snackbarHelper = SnackbarHelper()
-  val tapHelper = TapHelper(activity).also { surfaceView.setOnTouchListener(it) }
 
   override fun onResume(owner: LifecycleOwner) {
     surfaceView.onResume()
@@ -89,20 +86,7 @@ class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
       .show()
   }
 
-  private fun launchInstantPlacementSettingsMenuDialog() {
-    val resources = activity.resources
-    val strings = resources.getStringArray(R.array.instant_placement_options_array)
-    val checked = booleanArrayOf(activity.instantPlacementSettings.isInstantPlacementEnabled)
-    AlertDialog.Builder(activity)
-      .setTitle(R.string.options_title_instant_placement)
-      .setMultiChoiceItems(strings, checked) { _, which, isChecked -> checked[which] = isChecked }
-      .setPositiveButton(R.string.done) { _, _ ->
-        val session = session ?: return@setPositiveButton
-        activity.instantPlacementSettings.isInstantPlacementEnabled = checked[0]
-        activity.configureSession(session)
-      }
-      .show()
-  }
+
 
   /** Shows checkboxes to the user to facilitate toggling of depth-based effects. */
   private fun launchDepthSettingsMenuDialog() {
