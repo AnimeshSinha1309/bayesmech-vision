@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AR Stream Dashboard</title>
+    <title>BayesMech CamAlytics Dashboard</title>
+    <link rel="icon" type="image/png" href="/static/logo.png">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <style>
         * {
@@ -13,36 +14,80 @@
         }
 
         :root {
-            --bg-dark: #0a0e27;
-            --bg-card: #151933;
-            --bg-card-hover: #1a1f3a;
-            --accent: #00d4ff;
-            --accent-glow: rgba(0, 212, 255, 0.3);
-            --text: #e0e6ed;
-            --text-dim: #8892a6;
-            --success: #00ff88;
-            --warning: #ffaa00;
-            --error: #ff4466;
-            --border: rgba(255, 255, 255, 0.1);
+            /* Light Mode (Material Design 3 Inspired) */
+            --bg-dark: #fbfdfd; /* Surface */
+            --bg-card: #f0f4f5; /* Surface Container Low */
+            --bg-card-hover: #eaf1f3; /* Surface Container */
+            --accent: #00668b; /* Primary */
+            --accent-glow: rgba(0, 102, 139, 0.1);
+            --text: #191c1d; /* On Surface */
+            --text-dim: #40484c; /* On Surface Variant */
+            --success: #2e6c46;
+            --warning: #7c5800;
+            --error: #ba1a1a;
+            --border: #dbe4e8; /* Outline Variant */
+            --header-bg: #fbfdfd;
+            --shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
+        }
+
+        /* Dark Mode */
+        body.dark-mode {
+            --bg-dark: #191c1d;
+            --bg-card: #202526;
+            --bg-card-hover: #262c2d;
+            --accent: #78d1ff; /* Primary in Dark */
+            --accent-glow: rgba(120, 209, 255, 0.1);
+            --text: #e1e3e4;
+            --text-dim: #c0c8cc;
+            --success: #98d5a9;
+            --warning: #ffb833;
+            --error: #ffb4ab;
+            --border: #3f484b;
+            --header-bg: #191c1d;
+            --shadow: 0 4px 8px rgba(0,0,0,0.4);
         }
 
         body {
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 100%);
+            font-family: 'Roboto', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg-dark);
             color: var(--text);
             min-height: 100vh;
             overflow-x: hidden;
+            transition: background-color 0.3s ease, color 0.3s ease;
         }
 
         .header {
-            background: rgba(21, 25, 51, 0.8);
-            backdrop-filter: blur(20px);
+            background: var(--header-bg);
             border-bottom: 1px solid var(--border);
-            padding: 1.5rem 2rem;
+            padding: 1rem 2rem;
             position: sticky;
             top: 0;
             z-index: 1000;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            box-shadow: var(--shadow);
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+
+        /* Theme Toggle Switch */
+        .theme-toggle {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            margin-right: 1rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--text);
+            transition: all 0.2s ease;
+        }
+        
+        .theme-toggle:hover {
+            background: var(--bg-card-hover);
+        }
+
+        .theme-toggle .icon {
+            font-size: 1.25rem;
+            margin-right: 0.5rem;
         }
 
         .header-content {
@@ -60,24 +105,15 @@
         }
 
         .logo-icon {
-            width: 40px;
-            height: 40px;
-            background: linear-gradient(135deg, var(--accent), #0099cc);
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.5rem;
-           box-shadow: 0 0 20px var(--accent-glow);
+            display: none; /* Removing old icon container style */
         }
 
         .logo h1 {
             font-size: 1.5rem;
-            font-weight: 700;
-            background: linear-gradient(135deg, var(--accent), #fff);
-            background-clip: text;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+            font-weight: 500;
+            color: var(--text); /* Solid text color */
+            background: none;
+            -webkit-text-fill-color: var(--text);
         }
 
         .status-badge {
@@ -85,10 +121,11 @@
             align-items: center;
             gap: 0.5rem;
             padding: 0.5rem 1rem;
-            background: rgba(0, 255, 136, 0.1);
+            background: var(--bg-card);
             border: 1px solid var(--success);
             border-radius: 20px;
             font-size: 0.875rem;
+            color: var(--success);
         }
 
         .status-dot {
@@ -96,7 +133,6 @@
             height: 8px;
             background: var(--success);
             border-radius: 50%;
-            animation: pulse 2s infinite;
         }
 
         @keyframes pulse {
@@ -116,67 +152,58 @@
 
         .section-title {
             font-size: 1.25rem;
-            font-weight: 600;
+            font-weight: 500;
             margin-bottom: 1rem;
             display: flex;
             align-items: center;
             gap: 0.5rem;
+            color: var(--text);
         }
 
         .client-list {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-            gap: 1rem;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1.5rem;
             margin-bottom: 2rem;
         }
 
         .client-card {
             background: var(--bg-card);
             border: 1px solid var(--border);
-            border-radius: 12px;
+            border-radius: 16px; /* Larger radius for MD3 */
             padding: 1.5rem;
             cursor: pointer;
-            transition: all 0.3s ease;
+            transition: all 0.2s ease;
             position: relative;
             overflow: hidden;
+            box-shadow: none;
         }
 
         .client-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 3px;
-            background: linear-gradient(90deg, var(--accent), #0099cc);
-            transform: scaleX(0);
-            transition: transform 0.3s ease;
+            display: none; /* Remove gradient bar */
         }
 
         .client-card:hover {
             background: var(--bg-card-hover);
-            border-color: var(--accent);
             transform: translateY(-2px);
-            box-shadow: 0 8px 30px var(--accent-glow);
-        }
-
-        .client-card:hover::before {
-            transform: scaleX(1);
+            box-shadow: var(--shadow);
+            border-color: var(--border);
         }
 
         .client-card.active {
-            border-color: var(--accent);
-            background: var(--bg-card-hover);
-            box-shadow: 0 0 30px var(--accent-glow);
-        }
-
-        .client-card.active::before {
-            transform: scaleX(1);
+            background: var(--accent-glow);
+            border: 1px solid var(--accent);
+            box-shadow: none;
         }
 
         .client-id {
-            font-weight: 600;
-            margin-bottom: 0.5rem;
+            font-weight: 500;
+            font-size: 1.1rem;
+            margin-bottom: 0.75rem;
+            color: var(--text);
+        }
+        
+        .client-card.active .client-id {
             color: var(--accent);
         }
 
@@ -185,7 +212,7 @@
             color: var(--text-dim);
             display: flex;
             flex-direction: column;
-            gap: 0.25rem;
+            gap: 0.4rem;
         }
 
         .viewer-grid {
@@ -204,7 +231,7 @@
         .stream-card {
             background: var(--bg-card);
             border: 1px solid var(--border);
-            border-radius: 12px;
+            border-radius: 16px;
             padding: 1.5rem;
             position: relative;
             overflow: hidden;
@@ -218,22 +245,25 @@
         }
 
         .stream-title {
-            font-size: 1.125rem;
-            font-weight: 600;
+            font-size: 1rem;
+            font-weight: 500;
+            color: var(--text);
         }
 
         .stream-badge {
             font-size: 0.75rem;
             padding: 0.25rem 0.75rem;
-            background: rgba(0, 212, 255, 0.2);
-            border: 1px solid var(--accent);
+            background: var(--accent-glow);
+            color: var(--accent);
+            border: none;
             border-radius: 12px;
+            font-weight: 500;
         }
 
         .stream-viewer {
             position: relative;
             background: #000;
-            border-radius: 8px;
+            border-radius: 12px;
             overflow: hidden;
             aspect-ratio: 16 / 9;
             display: flex;
@@ -264,19 +294,19 @@
         .matrix-display {
             background: var(--bg-card);
             border: 1px solid var(--border);
-            border-radius: 12px;
+            border-radius: 16px;
             padding: 1.5rem;
         }
-
+        
         .matrix-grid {
             display: grid;
             gap: 1rem;
         }
 
         .matrix-item {
-            background: rgba(0, 212, 255, 0.05);
+            background: var(--bg-dark); /* Contrast against card */
             border: 1px solid var(--border);
-            border-radius: 8px;
+            border-radius: 12px;
             padding: 1rem;
         }
 
@@ -284,11 +314,11 @@
             font-size: 0.875rem;
             color: var(--accent);
             margin-bottom: 0.5rem;
-            font-weight: 600;
+            font-weight: 500;
         }
 
         .matrix-content {
-            font-family: 'Courier New', monospace;
+            font-family: 'Roboto Mono', 'Courier New', monospace;
             font-size: 0.75rem;
             color: var(--text-dim);
             white-space: pre;
@@ -352,15 +382,48 @@
     <div class="header">
         <div class="header-content">
             <div class="logo">
-                <div class="logo-icon">📡</div>
-                <h1>AR Stream Dashboard</h1>
+                <img src="/static/logo.png" alt="BayesMech" style="height: 32px; margin-right: 12px; vertical-align: middle;">
+                <h1>BayesMech CamAlytics Dashboard</h1>
             </div>
-            <div class="status-badge">
-                <div class="status-dot"></div>
-                <span id="connection-status">Connected</span>
+            <div style="display: flex; align-items: center;">
+                <div class="theme-toggle" id="theme-toggle" title="Toggle Dark/Light Mode">
+                    <span class="icon">🌙</span>
+                    <span id="theme-text">Dark</span>
+                </div>
+                <div class="status-badge">
+                    <div class="status-dot"></div>
+                    <span id="connection-status">Connected</span>
+                </div>
             </div>
         </div>
     </div>
+    
+    <script>
+        const themeToggle = document.getElementById('theme-toggle');
+        const themeText = document.getElementById('theme-text');
+        const themeIcon = themeToggle.querySelector('.icon');
+        const body = document.body;
+        
+        // Check local storage
+        if (localStorage.getItem('theme') === 'dark') {
+            body.classList.add('dark-mode');
+            themeText.textContent = 'Light';
+            themeIcon.textContent = '☀️';
+        }
+
+        themeToggle.addEventListener('click', () => {
+            body.classList.toggle('dark-mode');
+            if (body.classList.contains('dark-mode')) {
+                localStorage.setItem('theme', 'dark');
+                themeText.textContent = 'Light';
+                themeIcon.textContent = '☀️';
+            } else {
+                localStorage.setItem('theme', 'light');
+                themeText.textContent = 'Dark';
+                themeIcon.textContent = '🌙';
+            }
+        });
+    </script>
 
     <div class="container">
         <!-- Connected Clients -->

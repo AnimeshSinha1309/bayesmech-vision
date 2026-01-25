@@ -3,7 +3,7 @@
 # This script will stop the current server and restart it with visible logs
 
 echo "============================================"
-echo "Starting AR Stream Server"
+echo "Starting BayesMech CamAlytics Server"
 echo "============================================"
 echo ""
 

@@ -39,7 +39,10 @@ config_path = Path(__file__).parent / 'config.yaml'
 with open(config_path) as f:
     config = yaml.safe_load(f)
 
-app = FastAPI(title="AR Stream Server", version="1.0.0")
+from fastapi.staticfiles import StaticFiles
+
+app = FastAPI(title="BayesMech CamAlytics Server", version="1.0.0")
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Add CORS middleware to allow WebSocket connections from mobile devices
 app.add_middleware(

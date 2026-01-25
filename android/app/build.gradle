@@ -18,10 +18,10 @@ apply plugin: 'kotlin-android'
 apply plugin: 'com.google.protobuf'
 
 android {
-    namespace "com.google.ar.core.examples.kotlin.helloar"
+    namespace "com.bayesmech.camalytics"
     compileSdkVersion 36
     defaultConfig {
-        applicationId "com.google.ar.core.examples.kotlin.helloar"
+        applicationId "com.bayesmech.camalytics"
 
         // AR Optional apps must declare minSdkVersion >= 14.
         // AR Required apps must declare minSdkVersion >= 24.
