@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AR Stream Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -418,6 +419,29 @@
                 </div>
             </div>
 
+            <!-- Sensor / Motion Data -->
+            <div class="matrix-display" style="margin-top: 1.5rem;">
+                <h3 class="section-title">📱 Motion Sensors - Time Series (300s)</h3>
+                <div style="display: grid; grid-template-columns: 1fr; gap: 1.5rem;">
+                    <div class="stream-card">
+                        <h4 class="stream-title" style="margin-bottom: 1rem;">Linear Acceleration (m/s²)</h4>
+                        <canvas id="accel-chart" style="max-height: 250px;"></canvas>
+                    </div>
+                    <div class="stream-card">
+                        <h4 class="stream-title" style="margin-bottom: 1rem;">Angular Velocity (rad/s)</h4>
+                        <canvas id="gyro-chart" style="max-height: 250px;"></canvas>
+                    </div>
+                    <div class="stream-card">
+                        <h4 class="stream-title" style="margin-bottom: 1rem;">Gravity (m/s²)</h4>
+                        <canvas id="gravity-chart" style="max-height: 250px;"></canvas>
+                    </div>
+                    <div class="stream-card">
+                        <h4 class="stream-title" style="margin-bottom: 1rem;">Orientation (Quaternion)</h4>
+                        <canvas id="orient-chart" style="max-height: 250px;"></canvas>
+                    </div>
+                </div>
+            </div>
+
             <!-- Stream Info -->
             <div class="info-cards" style="margin-top: 1.5rem;">
                 <div class="info-card">
@@ -621,6 +645,11 @@
                 const states = ['STOPPED', 'PAUSED', 'TRACKING'];
                 document.getElementById('tracking-state').textContent = states[data.tracking_state] || 'UNKNOWN';
             }
+
+            // Update motion/sensor data
+            if (data.motion) {
+                updateMotionData(data.motion);
+            }
         }
 
         // Update camera data display
@@ -645,6 +674,201 @@
             }
 
             cameraDataDiv.innerHTML = html;
+        }
+
+        // Motion sensor charts
+        let accelChart, gyroChart, gravityChart, orientChart;
+        const MAX_DATA_POINTS = 2000; // Enough for 300+ seconds at typical frame rates
+        const WINDOW_DURATION = 300; // Show last 300 seconds (5 minutes)
+        const FUTURE_WINDOW = 10; // Show 10 seconds into future
+        const chartData = {
+            accel: { x: [], y: [], z: [], timestamps: [] },
+            gyro: { x: [], y: [], z: [], timestamps: [] },
+            gravity: { x: [], y: [], z: [], timestamps: [] },
+            orient: { x: [], y: [], z: [], w: [], timestamps: [] }
+        };
+
+        // Initialize charts when a client is selected
+        function initSensorCharts() {
+            const now = Date.now() / 1000;
+            const commonOptions = {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                scales: {
+                    x: {
+                        type: 'linear',
+                        title: { display: true, text: 'Time (s from epoch)', color: '#8892a6' },
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                        ticks: { 
+                            color: '#8892a6',
+                            callback: function(value) {
+                                return Math.floor(value);
+                            }
+                        },
+                        min: now - WINDOW_DURATION,
+                        max: now + FUTURE_WINDOW
+                    },
+                    y: {
+                        title: { display: true, color: '#8892a6' },
+                        grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                        ticks: { color: '#8892a6' }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        labels: { color: '#e0e6ed' }
+                    }
+                }
+            };
+
+            // Acceleration chart
+            const accelCtx = document.getElementById('accel-chart').getContext('2d');
+            accelChart = new Chart(accelCtx, {
+                type: 'line',
+                data: {
+                    datasets: [
+                        { label: 'X', data: [], borderColor: '#ff4466', backgroundColor: 'rgba(255, 68, 102, 0.1)', tension: 0.1, borderWidth: 2, pointRadius: 0 },
+                        { label: 'Y', data: [], borderColor: '#00ff88', backgroundColor: 'rgba(0, 255, 136, 0.1)', tension: 0.1, borderWidth: 2, pointRadius: 0 },
+                        { label: 'Z', data: [], borderColor: '#00d4ff', backgroundColor: 'rgba(0, 212, 255, 0.1)', tension: 0.1, borderWidth: 2, pointRadius: 0 }
+                    ]
+                },
+                options: { ...commonOptions, scales: { ...commonOptions.scales, y: { ...commonOptions.scales.y, title: { display: true, text: 'm/s²', color: '#8892a6' } } } }
+            });
+
+            // Gyroscope (Angular Velocity) chart
+            const gyroCtx = document.getElementById('gyro-chart').getContext('2d');
+            gyroChart = new Chart(gyroCtx, {
+                type: 'line',
+                data: {
+                    datasets: [
+                        { label: 'X', data: [], borderColor: '#ff4466', backgroundColor: 'rgba(255, 68, 102, 0.1)', tension: 0.1, borderWidth: 2, pointRadius: 0 },
+                        { label: 'Y', data: [], borderColor: '#00ff88', backgroundColor: 'rgba(0, 255, 136, 0.1)', tension: 0.1, borderWidth: 2, pointRadius: 0 },
+                        { label: 'Z', data: [], borderColor: '#00d4ff', backgroundColor: 'rgba(0, 212, 255, 0.1)', tension: 0.1, borderWidth: 2, pointRadius: 0 }
+                    ]
+                },
+                options: { ...commonOptions, scales: { ...commonOptions.scales, y: { ...commonOptions.scales.y, title: { display: true, text: 'rad/s', color: '#8892a6' } } } }
+            });
+
+            // Gravity chart
+            const gravityCtx = document.getElementById('gravity-chart').getContext('2d');
+            gravityChart = new Chart(gravityCtx, {
+                type: 'line',
+                data: {
+                    datasets: [
+                        { label: 'X', data: [], borderColor: '#ff4466', backgroundColor: 'rgba(255, 68, 102, 0.1)', tension: 0.1, borderWidth: 2, pointRadius: 0 },
+                        { label: 'Y', data: [], borderColor: '#00ff88', backgroundColor: 'rgba(0, 255, 136, 0.1)', tension: 0.1, borderWidth: 2, pointRadius: 0 },
+                        { label: 'Z', data: [], borderColor: '#00d4ff', backgroundColor: 'rgba(0, 212, 255, 0.1)', tension: 0.1, borderWidth: 2, pointRadius: 0 }
+                    ]
+                },
+                options: { ...commonOptions, scales: { ...commonOptions.scales, y: { ...commonOptions.scales.y, title: { display: true, text: 'm/s²', color: '#8892a6' } } } }
+            });
+
+            // Orientation chart
+            const orientCtx = document.getElementById('orient-chart').getContext('2d');
+            orientChart = new Chart(orientCtx, {
+                type: 'line',
+                data: {
+                    datasets: [
+                        { label: 'X', data: [], borderColor: '#ff4466', backgroundColor: 'rgba(255, 68, 102, 0.1)', tension: 0.1, borderWidth: 2, pointRadius: 0 },
+                        { label: 'Y', data: [], borderColor: '#00ff88', backgroundColor: 'rgba(0, 255, 136, 0.1)', tension: 0.1, borderWidth: 2, pointRadius: 0 },
+                        { label: 'Z', data: [], borderColor: '#00d4ff', backgroundColor: 'rgba(0, 212, 255, 0.1)', tension: 0.1, borderWidth: 2, pointRadius: 0 },
+                        { label: 'W', data: [], borderColor: '#ffaa00', backgroundColor: 'rgba(255, 170, 0, 0.1)', tension: 0.1, borderWidth: 2, pointRadius: 0 }
+                    ]
+                },
+                options: { ...commonOptions, scales: { ...commonOptions.scales, y: { ...commonOptions.scales.y, title: { display: true, text: 'Quaternion', color: '#8892a6' }, min: -1, max: 1 } } }
+            });
+        }
+
+        // Update motion sensor data in charts
+        function updateMotionData(motion) {
+            if (!accelChart) {
+                initSensorCharts();
+            }
+
+            const now = Date.now() / 1000; // Current time in seconds from epoch
+
+            // Helper function to add data point
+            function addDataPoint(dataObj, x, y, z, w = null) {
+                dataObj.timestamps.push(now);
+                dataObj.x.push(x);
+                dataObj.y.push(y);
+                dataObj.z.push(z);
+                if (w !== null) dataObj.w.push(w);
+
+                // Remove old data points outside the window
+                const cutoffTime = now - WINDOW_DURATION;
+                while (dataObj.timestamps.length > 0 && dataObj.timestamps[0] < cutoffTime) {
+                    dataObj.timestamps.shift();
+                    dataObj.x.shift();
+                    dataObj.y.shift();
+                    dataObj.z.shift();
+                    if (w !== null) dataObj.w.shift();
+                }
+
+                // Also limit by max points as a safety measure
+                if (dataObj.timestamps.length > MAX_DATA_POINTS) {
+                    dataObj.timestamps.shift();
+                    dataObj.x.shift();
+                    dataObj.y.shift();
+                    dataObj.z.shift();
+                    if (w !== null) dataObj.w.shift();
+                }
+            }
+
+            // Update acceleration
+            if (motion.linear_acceleration) {
+                addDataPoint(chartData.accel, 
+                    motion.linear_acceleration.x,
+                    motion.linear_acceleration.y,
+                    motion.linear_acceleration.z);
+                updateChart(accelChart, chartData.accel, ['x', 'y', 'z'], now);
+            }
+
+            // Update gyroscope (angular velocity)
+            if (motion.angular_velocity) {
+                addDataPoint(chartData.gyro,
+                    motion.angular_velocity.x,
+                    motion.angular_velocity.y,
+                    motion.angular_velocity.z);
+                updateChart(gyroChart, chartData.gyro, ['x', 'y', 'z'], now);
+            }
+
+            // Update gravity
+            if (motion.gravity) {
+                addDataPoint(chartData.gravity,
+                    motion.gravity.x,
+                    motion.gravity.y,
+                    motion.gravity.z);
+                updateChart(gravityChart, chartData.gravity, ['x', 'y', 'z'], now);
+            }
+
+            // Update orientation
+            if (motion.orientation) {
+                addDataPoint(chartData.orient,
+                    motion.orientation.x,
+                    motion.orientation.y,
+                    motion.orientation.z,
+                    motion.orientation.w);
+                updateChart(orientChart, chartData.orient, ['x', 'y', 'z', 'w'], now);
+            }
+        }
+
+        // Helper to update a chart with new data
+        function updateChart(chart, dataObj, axes, now) {
+            // Update datasets
+            axes.forEach((axis, index) => {
+                chart.data.datasets[index].data = dataObj.timestamps.map((t, i) => ({
+                    x: t,
+                    y: dataObj[axis][i]
+                }));
+            });
+
+            // Update x-axis limits to create moving window
+            chart.options.scales.x.min = now - WINDOW_DURATION;
+            chart.options.scales.x.max = now + FUTURE_WINDOW;
+
+            chart.update('none'); // Update without animation for performance
         }
 
         //Create matrix card HTML

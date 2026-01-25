@@ -53,6 +53,7 @@ import android.graphics.Bitmap
 import com.google.ar.core.examples.kotlin.helloar.network.ARStreamClient
 import com.google.ar.core.examples.kotlin.helloar.network.StreamConfig
 import com.google.ar.core.examples.kotlin.helloar.capture.ARDataCapture
+import com.google.ar.core.examples.kotlin.helloar.sensors.SensorDataCollector
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -146,6 +147,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
   // AR Streaming components
   private var streamClient: ARStreamClient? = null
   private var dataCapture: ARDataCapture? = null
+  private var sensorCollector: SensorDataCollector? = null  // NEW: Sensor data collector
   private val streamingScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
   // Track viewport dimensions
@@ -611,15 +613,23 @@ class HelloArRenderer(val activity: HelloArActivity) :
       android.provider.Settings.Secure.ANDROID_ID
     )
     
-    dataCapture = ARDataCapture(streamClient!!, config, deviceId)
+    // Initialize sensor collector and start collecting
+    sensorCollector = SensorDataCollector(activity)
+    sensorCollector?.startCollecting()
+    
+    dataCapture = ARDataCapture(streamClient!!, config, deviceId, sensorCollector!!)
     Log.i(TAG, "AR streaming started to ${config.serverUrl} with device_id: $deviceId")
+    Log.i(TAG, "Sensor data collection started")
   }
 
   fun stopStreaming() {
+    sensorCollector?.stopCollecting()
+    sensorCollector = null
     streamClient?.disconnect()
     streamClient = null
     dataCapture = null
     Log.i(TAG, "AR streaming stopped")
+    Log.i(TAG, "Sensor data collection stopped")
   }
 
   private fun extractCameraFrameBitmap(render: SampleRender): Bitmap? {

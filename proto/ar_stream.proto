@@ -7,6 +7,7 @@ message ARFrame {
   // Metadata
   int64 timestamp_ns = 1;           // Nanosecond timestamp
   uint32 frame_number = 2;          // Sequential frame ID
+  string device_id = 8;             // Stable device identifier (e.g., Android ID)
 
   // Camera data
   CameraData camera = 3;

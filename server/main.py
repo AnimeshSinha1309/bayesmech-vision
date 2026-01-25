@@ -258,6 +258,54 @@ def extract_frame_data(ar_frame, client_id: str) -> dict:
     else:
         logger.debug(f"✗ No depth frame in frame {ar_frame.frame_number}")
 
+    # Motion/sensor data (optional)
+    if ar_frame.HasField('motion'):
+        motion = ar_frame.motion
+        data['motion'] = {}
+        
+        if motion.HasField('linear_acceleration'):
+            data['motion']['linear_acceleration'] = {
+                'x': motion.linear_acceleration.x,
+                'y': motion.linear_acceleration.y,
+                'z': motion.linear_acceleration.z
+            }
+        
+        if motion.HasField('linear_velocity'):
+            data['motion']['linear_velocity'] = {
+                'x': motion.linear_velocity.x,
+                'y': motion.linear_velocity.y,
+                'z': motion.linear_velocity.z
+            }
+        
+        if motion.HasField('angular_velocity'):
+            data['motion']['angular_velocity'] = {
+                'x': motion.angular_velocity.x,
+                'y': motion.angular_velocity.y,
+                'z': motion.angular_velocity.z
+            }
+        
+        if motion.HasField('gravity'):
+            data['motion']['gravity'] = {
+                'x': motion.gravity.x,
+                'y': motion.gravity.y,
+                'z': motion.gravity.z
+            }
+        
+        if motion.HasField('orientation'):
+            data['motion']['orientation'] = {
+                'x': motion.orientation.x,
+                'y': motion.orientation.y,
+                'z': motion.orientation.z,
+                'w': motion.orientation.w
+            }
+        
+        # Log motion data summary
+        if motion.HasField('linear_acceleration') and motion.HasField('angular_velocity'):
+            logger.debug(f"  Motion data: accel=[{motion.linear_acceleration.x:.2f}, "
+                        f"{motion.linear_acceleration.y:.2f}, {motion.linear_acceleration.z:.2f}] m/s², "
+                        f"gyro=[{motion.angular_velocity.x:.2f}, {motion.angular_velocity.y:.2f}, "
+                        f"{motion.angular_velocity.z:.2f}] rad/s")
+
     return data
 
 @app.get("/", response_class=HTMLResponse)
@@ -412,6 +460,11 @@ async def broadcast_frame_to_dashboards(client_id: str, frame_data: dict):
         
         dashboard_msg['tracking_state'] = camera.get('tracking_state', 0)
         logger.debug(f"  Camera data added to broadcast")
+    
+    # Add motion/sensor data
+    if 'motion' in frame_data:
+        dashboard_msg['motion'] = frame_data['motion']
+        logger.debug(f"  Motion data added to broadcast")
     
     # Store latest frame
     latest_frames[client_id] = dashboard_msg

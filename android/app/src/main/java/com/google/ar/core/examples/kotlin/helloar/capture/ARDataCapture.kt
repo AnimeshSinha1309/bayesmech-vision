@@ -12,11 +12,13 @@ import com.google.ar.core.examples.kotlin.helloar.network.QualityLevel
 import com.google.ar.core.examples.kotlin.helloar.network.StreamConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.google.ar.core.examples.kotlin.helloar.sensors.SensorDataCollector
 
 class ARDataCapture(
     private val streamClient: ARStreamClient,
     private val config: StreamConfig,
-    private val deviceId: String  // Stable device identifier
+    private val deviceId: String,  // Stable device identifier
+    private val sensorCollector: SensorDataCollector  // NEW: Sensor data collector
 ) {
     private val TAG = "ARDataCapture"
     private var frameNumber = 0
@@ -79,6 +81,7 @@ class ARDataCapture(
                 Log.i(TAG, "Sent frame $frameNumber, quality: $currentQuality, " +
                         "bandwidth: ${"%.2f".format(bandwidthMonitor.getCurrentBandwidthMbps())} Mbps, " +
                         "depth: $depthFramesIncluded/$depthTotal (${depthPercentage.toInt()}%)")
+                Log.i(TAG, "  Sensors: ${sensorCollector.getSensorSummary()}")
             }
 
         } catch (e: Exception) {
@@ -142,6 +145,13 @@ class ARDataCapture(
             }
         }
 
+        // Add motion/sensor data
+        val motionData = sensorCollector.getCurrentMotionData()
+        if (motionData.hasLinearAcceleration() || motionData.hasAngularVelocity() || 
+            motionData.hasGravity() || motionData.hasOrientation()) {
+            builder.motion = motionData
+        }
+
         return builder.build()
     }
 
@@ -151,7 +161,8 @@ class ARDataCapture(
         return mapOf(
             "frame_number" to frameNumber,
             "current_quality" to currentQuality.name,
-            "bandwidth_mbps" to bandwidthMonitor.getCurrentBandwidthMbps()
+            "bandwidth_mbps" to bandwidthMonitor.getCurrentBandwidthMbps(),
+            "sensor_summary" to sensorCollector.getSensorSummary()
         )
     }
 }
