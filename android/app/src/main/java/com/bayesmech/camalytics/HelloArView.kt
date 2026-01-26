@@ -25,6 +25,8 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import com.google.ar.core.Config
 import com.bayesmech.camalytics.common.helpers.SnackbarHelper
+import com.bayesmech.camalytics.recording.RecordingManager
+import android.widget.Toast
 
 /** Contains UI elements for Hello AR. */
 class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
@@ -52,6 +54,41 @@ class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
     get() = activity.arCoreSessionHelper.session
 
   val snackbarHelper = SnackbarHelper()
+  val recordingManager = RecordingManager(activity)
+  
+  val recordButton = root.findViewById<ImageButton>(R.id.record_button).apply {
+    setOnClickListener {
+      if (recordingManager.isRecording()) {
+        // Stop recording
+        val file = recordingManager.stopRecording()
+        if (file != null) {
+          setBackgroundResource(R.drawable.record_button_idle)
+          Toast.makeText(
+            activity,
+            activity.getString(R.string.recording_stopped, file.name),
+            Toast.LENGTH_LONG
+          ).show()
+        }
+      } else {
+        // Start recording
+        val filename = recordingManager.startRecording()
+        if (filename != null) {
+          setBackgroundResource(R.drawable.record_button_recording)
+          Toast.makeText(
+            activity,
+            activity.getString(R.string.recording_started),
+            Toast.LENGTH_SHORT
+          ).show()
+        } else {
+          Toast.makeText(
+            activity,
+            activity.getString(R.string.recording_error),
+            Toast.LENGTH_SHORT
+          ).show()
+        }
+      }
+    }
+  }
 
   override fun onResume(owner: LifecycleOwner) {
     surfaceView.onResume()

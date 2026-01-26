@@ -11,7 +11,7 @@ This server receives RGB and depth data from Android ARCore apps and displays
 them in a real-time web dashboard. No processing or storage - just streaming.
 """
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
@@ -26,6 +26,7 @@ import json
 from typing import Set
 
 from buffer.client_manager import ClientManager
+from playback import PlaybackManager
 
 # Setup logging
 logging.basicConfig(
@@ -78,6 +79,8 @@ except ImportError as e:
 dashboard_connections: Set[WebSocket] = set()
 # Store latest frame data for each client
 latest_frames = {}
+# Playback manager
+playback_manager = PlaybackManager(recordings_dir="recordings")
 
 @app.on_event("startup")
 async def startup():
@@ -352,6 +355,109 @@ async def get_clients():
         "clients": clients_data,
         "count": len(clients_data)
     }
+
+@app.get("/api/recordings")
+async def get_recordings():
+    """Get list of available recordings"""
+    recordings = playback_manager.list_recordings()
+    return {
+        "recordings": [
+            {
+                "filename": rec.name,
+                "size_mb": round(rec.stat().st_size / (1024 * 1024), 2),
+                "modified": rec.stat().st_mtime
+            }
+            for rec in recordings
+        ]
+    }
+
+@app.post("/api/playback/start")
+async def start_playback(request: dict):
+    """Start playback of a recording"""
+    filename = request.get("filename")
+    speed = request.get("speed", 1.0)
+    loop = request.get("loop", False)
+    
+    if not filename:
+        return {"error": "Missing filename"}, 400
+    
+    try:
+        # Register playback as a client
+        playback_client_id = f"playback_{filename}"
+        client_manager.add_client(playback_client_id, None)
+        
+        async def broadcast_frame(ar_frame):
+            """Broadcast frame to all dashboard connections"""
+            frame_data = extract_frame_data(ar_frame, playback_client_id)
+            
+            # Add to buffer so it shows up in client list
+            frame_buffer = client_manager.get_frame_buffer(playback_client_id)
+            if frame_buffer:
+                frame_buffer.add_frame(frame_data)
+                client_manager.update_last_frame_time(playback_client_id)
+            
+            await broadcast_frame_to_dashboards(playback_client_id, frame_data)
+        
+        await playback_manager.start_playback(filename, broadcast_frame, ar_stream_pb2, speed, loop)
+        return {"status": "success", "message": f"Playback started: {filename}"}
+    except FileNotFoundError as e:
+        return {"error": str(e)}, 404
+    except Exception as e:
+        logger.error(f"Playback start error: {e}")
+        return {"error": str(e)}, 500
+
+@app.post("/api/playback/stop")
+async def stop_playback():
+    """Stop current playback"""
+    await playback_manager.stop_playback()
+    return {"status": "success", "message": "Playback stopped"}
+
+@app.get("/api/playback/status")
+async def get_playback_status():
+    """Get current playback status"""
+    return playback_manager.get_status()
+
+@app.post("/api/upload_recording")
+async def upload_recording(file: UploadFile = File(...)):
+    """Upload a recording file and start playback"""
+    try:
+        # Save uploaded file to recordings directory
+        file_path = playback_manager.recordings_dir / file.filename
+        
+        with open(file_path, "wb") as f:
+            content = await file.read()
+            f.write(content)
+        
+        logger.info(f"Uploaded recording: {file.filename} ({len(content)} bytes)")
+        
+        # Register playback as a client
+        playback_client_id = f"playback_{file.filename}"
+        client_manager.add_client(playback_client_id, None)
+        
+        # Automatically start playback
+        async def broadcast_frame(ar_frame):
+            """Broadcast frame to all dashboard connections"""
+            frame_data = extract_frame_data(ar_frame, playback_client_id)
+            
+            # Add to buffer so it shows up in client list
+            frame_buffer = client_manager.get_frame_buffer(playback_client_id)
+            if frame_buffer:
+                frame_buffer.add_frame(frame_data)
+                client_manager.update_last_frame_time(playback_client_id)
+            
+            await broadcast_frame_to_dashboards(playback_client_id, frame_data)
+        
+        await playback_manager.start_playback(file.filename, broadcast_frame, ar_stream_pb2, speed=1.0, loop=False)
+        
+        return {
+            "status": "success", 
+            "message": f"Uploaded and started playback: {file.filename}",
+            "filename": file.filename,
+            "size": len(content)
+        }
+    except Exception as e:
+        logger.error(f"Upload error: {e}")
+        return {"error": str(e)}, 500
 
 
 @app.websocket("/ws/dashboard")

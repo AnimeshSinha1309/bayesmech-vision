@@ -34,4 +34,10 @@
   <string translatable="false" name="searching_planes">Searching for surfaces...</string>
   <string translatable="false" name="waiting_taps">Tap on a surface to place an object.</string>
 
+  <!-- Recording -->
+  <string translatable="false" name="record_button_description">Record AR session</string>
+  <string translatable="false" name="recording_started">Recording started</string>
+  <string translatable="false" name="recording_stopped">Recording saved: %1$s</string>
+  <string translatable="false" name="recording_error">Failed to start recording</string>
+
 </resources>

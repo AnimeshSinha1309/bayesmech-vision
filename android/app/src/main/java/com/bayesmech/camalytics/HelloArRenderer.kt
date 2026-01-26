@@ -342,7 +342,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
     sensorCollector = SensorDataCollector(activity)
     sensorCollector?.startCollecting()
     
-    dataCapture = ARDataCapture(streamClient!!, config, deviceId, sensorCollector!!)
+    dataCapture = ARDataCapture(streamClient!!, config, deviceId, sensorCollector!!, activity.view.recordingManager)
     Log.i(TAG, "AR streaming started to ${config.serverUrl} with device_id: $deviceId")
     Log.i(TAG, "Sensor data collection started")
   }

@@ -10,15 +10,17 @@ import com.bayesmech.camalytics.network.ARStreamClient
 import com.bayesmech.camalytics.network.BandwidthMonitor
 import com.bayesmech.camalytics.network.QualityLevel
 import com.bayesmech.camalytics.network.StreamConfig
+import com.bayesmech.camalytics.recording.RecordingManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.bayesmech.camalytics.sensors.SensorDataCollector
 
 class ARDataCapture(
-    private val streamClient: ARStreamClient,
+    private val client: ARStreamClient,
     private val config: StreamConfig,
     private val deviceId: String,  // Stable device identifier
-    private val sensorCollector: SensorDataCollector  // NEW: Sensor data collector
+    private val sensorCollector: SensorDataCollector,
+    private val recordingManager: RecordingManager
 ) {
     private val TAG = "ARDataCapture"
     private var frameNumber = 0
@@ -67,8 +69,13 @@ class ARDataCapture(
                 imageHeight
             )
 
-            // Send frame
-            streamClient.sendFrame(arFrame)
+            // Write to recording if active
+            if (recordingManager.isRecording()) {
+                recordingManager.writeFrame(arFrame)
+            }
+            
+            // Send to server (if connected)
+            client.sendFrame(arFrame)
 
             // Record bandwidth
             val frameSize = arFrame.serializedSize

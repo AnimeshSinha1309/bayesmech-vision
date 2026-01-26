@@ -1018,6 +1018,48 @@
         // Initialize
         connectStatusWS();
         setInterval(refreshClients, 5000); // Refresh every 5 seconds
-    </script>
+    
+        // FILE UPLOAD BUTTON
+        setTimeout(() => {
+            const headerActions = document.querySelector('.header-content > div:last-child');
+            if (headerActions) {
+                const uploadBtn = document.createElement('button');
+                uploadBtn.id = 'upload-btn';
+                uploadBtn.className = 'theme-toggle';
+                uploadBtn.style.marginRight = '1rem';
+                uploadBtn.title = 'Upload Recording File';
+                uploadBtn.innerHTML = '<span class="icon">📁</span><span>Upload Recording</span>';
+                
+                const fileInput = document.createElement('input');
+                fileInput.type = 'file';
+                fileInput.id = 'file-input';
+                fileInput.accept = '.pb';
+                fileInput.style.display = 'none';
+                
+                headerActions.insertBefore(uploadBtn, headerActions.firstChild);
+                headerActions.insertBefore(fileInput, headerActions.firstChild);
+                
+                uploadBtn.onclick = () => fileInput.click();
+                fileInput.onchange = async (e) => {
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    if (!file.name.endsWith('.pb')) {
+                        alert('Please select a .pb recording file');
+                        return;
+                    }
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    try {
+                        const resp = await fetch('/api/upload_recording', {method: 'POST', body: formData});
+                        const data = await resp.json();
+                        alert(data.message || data.error || 'Upload complete');
+                    } catch (err) {
+                        alert('Upload failed');
+                    }
+                    fileInput.value = '';
+                };
+            }
+        }, 100);
+</script>
 </body>
 </html>
