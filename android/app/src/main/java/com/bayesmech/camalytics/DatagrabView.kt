@@ -29,7 +29,7 @@ import com.bayesmech.camalytics.recording.RecordingManager
 import android.widget.Toast
 
 /** Contains UI elements for Hello AR. */
-class HelloArView(val activity: HelloArActivity) : DefaultLifecycleObserver {
+class DatagrabView(val activity: DatagrabActivity) : DefaultLifecycleObserver {
   val root = View.inflate(activity, R.layout.activity_main, null)
   val surfaceView = root.findViewById<GLSurfaceView>(R.id.surfaceview)
   val settingsButton =

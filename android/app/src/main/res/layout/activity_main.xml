@@ -17,7 +17,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    tools:context="com.bayesmech.camalytics.HelloArActivity">
+    tools:context="com.bayesmech.camalytics.DatagrabActivity">
 
   <android.opengl.GLSurfaceView
       android:id="@+id/surfaceview"

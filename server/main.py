@@ -54,26 +54,20 @@ app.add_middleware(
     allow_headers=["*"],  # Allow all headers
 )
 
-logger.info("CORS middleware enabled - accepting connections from all origins")
-
 # Initialize components
 client_manager = ClientManager()
 
-# Import protobuf after ensuring it exists
+# Import protobuf from the proto/ directory
 try:
     import sys
-    # Try both possible proto locations
-    proto_path = Path(__file__).parent / 'proto' / 'proto'
-    if not proto_path.exists():
-        proto_path = Path(__file__).parent / 'proto'
-    
+    proto_path = Path(__file__).parent / 'proto'
     sys.path.insert(0, str(proto_path))
     import ar_stream_pb2
-    logger.info(f"✓ Protobuf module loaded successfully from {proto_path}")
 except ImportError as e:
     logger.error(f"✗ Failed to import protobuf module: {e}")
-    logger.error("Run generate_proto.sh to generate protobuf files!")
+    logger.error("Check that ar_stream_pb2.py exists in the proto/ directory!")
     ar_stream_pb2 = None
+
 
 # Dashboard WebSocket connections
 dashboard_connections: Set[WebSocket] = set()
@@ -84,11 +78,11 @@ playback_manager = PlaybackManager(recordings_dir="recordings")
 
 @app.on_event("startup")
 async def startup():
-    logger.info(f"Server started on {config['server']['host']}:{config['server']['port']}")
+    pass
 
 @app.on_event("shutdown")
 async def shutdown():
-    logger.info("Server stopped")
+    pass
 
 @app.websocket("/ar-stream")
 async def websocket_endpoint(websocket: WebSocket):
@@ -97,19 +91,10 @@ async def websocket_endpoint(websocket: WebSocket):
     client_id = temp_client_id  # Will be updated when we get device_id
     device_id = None
     
-    # Log connection attempt details
-    logger.info(f"=" * 60)
-    logger.info(f"WebSocket connection attempt from: {temp_client_id}")
-    logger.info(f"  Client host: {websocket.client.host}")
-    logger.info(f"  Client port: {websocket.client.port}")
-    logger.info(f"  Headers: {dict(websocket.headers)}")
-    logger.info(f"=" * 60)
-    
     # IMPORTANT: Accept connection FIRST to avoid 403 Forbidden errors
     # Then check requirements and close gracefully if needed
     try:
         await websocket.accept()
-        logger.info(f"✓ WebSocket connection ACCEPTED for client {temp_client_id}")
     except Exception as e:
         logger.error(f"✗ Failed to accept WebSocket connection from {temp_client_id}: {e}", exc_info=True)
         return
@@ -152,20 +137,14 @@ async def websocket_endpoint(websocket: WebSocket):
                     # Check if this device was previously connected
                     old_client = client_manager.find_client_by_device_id(device_id)
                     if old_client:
-                        logger.info(f"✓ Device {device_id} reconnected (was {old_client}, now {temp_client_id})")
                         # Remove old client entry
                         client_manager.remove_client(old_client)
                     client_id = device_id
                 else:
-                    logger.warning(f"No device_id in frame from {temp_client_id}, using IP:port as ID")
                     client_id = temp_client_id
                 
                 # Register client with final ID
                 client_manager.add_client(client_id, websocket, device_id=device_id, connection_info=temp_client_id)
-                logger.info(f"✓ Client registered as {client_id}")
-                logger.info(f"→ First frame received from {client_id} ({len(data)} bytes)")
-            elif frame_count % 100 == 0:
-                logger.debug(f"→ Received frame #{frame_count} from {client_id} ({len(data)} bytes)")
 
             # Extract frame data
             frame_data = extract_frame_data(ar_frame, client_id)
@@ -181,14 +160,13 @@ async def websocket_endpoint(websocket: WebSocket):
                 asyncio.create_task(broadcast_frame_to_dashboards(client_id, frame_data))
 
     except WebSocketDisconnect:
-        logger.info(f"Client {client_id} disconnected (WebSocketDisconnect)")
+        pass
     except Exception as e:
         logger.error(f"✗ Error for client {client_id}: {e}", exc_info=True)
         logger.error(f"  Error type: {type(e).__name__}")
         logger.error(f"  Error details: {str(e)}")
     finally:
         client_manager.remove_client(client_id)
-        logger.info(f"Client {client_id} cleaned up and removed")
 
 
 def extract_frame_data(ar_frame, client_id: str) -> dict:
@@ -221,9 +199,8 @@ def extract_frame_data(ar_frame, client_id: str) -> dict:
         data['camera']['image_width'] = cam.image_width
         data['camera']['image_height'] = cam.image_height
         data['camera']['tracking_state'] = cam.tracking_state
-        logger.debug(f"  Camera data extracted: {cam.image_width}x{cam.image_height}, tracking={cam.tracking_state}")
     else:
-        logger.warning(f"  No camera data in frame {ar_frame.frame_number}")
+        pass
 
     # RGB frame
     if ar_frame.HasField('rgb_frame'):
@@ -244,7 +221,7 @@ def extract_frame_data(ar_frame, client_id: str) -> dict:
         except Exception as e:
             logger.error(f"✗ Failed to decode RGB frame: {e}", exc_info=True)
     else:
-        logger.warning(f"✗ No RGB frame in frame {ar_frame.frame_number}")
+        pass
 
     # Depth frame (optional)
     if ar_frame.HasField('depth_frame'):
@@ -261,8 +238,6 @@ def extract_frame_data(ar_frame, client_id: str) -> dict:
                 data['depth_confidence'] = conf_data.reshape(depth.height, depth.width)
         except Exception as e:
             logger.error(f"✗ Failed to decode depth frame: {e}", exc_info=True)
-    else:
-        logger.debug(f"✗ No depth frame in frame {ar_frame.frame_number}")
 
     # Motion/sensor data (optional)
     if ar_frame.HasField('motion'):
@@ -478,7 +453,6 @@ async def dashboard_websocket(websocket: WebSocket):
                 
                 if data.get('action') == 'subscribe':
                     subscribed_client = data.get('client_id')
-                    logger.info(f"Dashboard subscribed to client: {subscribed_client}")
                     
                     # Send latest frame if available
                     if subscribed_client in latest_frames:
@@ -488,7 +462,7 @@ async def dashboard_websocket(websocket: WebSocket):
                 # No message received, just continue
                 pass
             except json.JSONDecodeError:
-                logger.warning("Invalid JSON received from dashboard")
+                pass
                 
             # Send periodic client list updates
             await asyncio.sleep(0.1)
@@ -499,7 +473,6 @@ async def dashboard_websocket(websocket: WebSocket):
         logger.error(f"Dashboard WebSocket error: {e}", exc_info=True)
     finally:
         dashboard_connections.discard(websocket)
-        logger.info(f"Dashboard client removed. Total: {len(dashboard_connections)}")
 
 def encode_image_to_base64(image_array: np.ndarray, format='JPEG') -> str:
     """Convert numpy array image to base64 string"""

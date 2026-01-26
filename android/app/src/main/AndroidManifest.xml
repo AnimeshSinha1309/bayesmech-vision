@@ -43,7 +43,7 @@
       tools:ignore="GoogleAppIndexingWarning">
 
     <activity
-        android:name=".HelloArActivity"
+        android:name=".DatagrabActivity"
         android:configChanges="orientation|screenSize"
         android:exported="true"
         android:theme="@style/Theme.AppCompat.NoActionBar"

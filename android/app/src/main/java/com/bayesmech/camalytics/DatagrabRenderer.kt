@@ -50,10 +50,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
-/** Renders the HelloAR application using our example Renderer. */
-class HelloArRenderer(val activity: HelloArActivity) :
+/** Renders the Datagrab application using our example Renderer. */
+class DatagrabRenderer(val activity: DatagrabActivity) :
   SampleRender.Renderer, DefaultLifecycleObserver {
-    val TAG = "HelloArRenderer"
+    val TAG = "DatagrabRenderer"
 
     private val Z_NEAR = 0.1f
     private val Z_FAR = 100f
@@ -116,8 +116,8 @@ class HelloArRenderer(val activity: HelloArActivity) :
       pointCloudShader =
         Shader.createFromAssets(
             render,
-            "shaders/point_cloud.vert",
-            "shaders/point_cloud.frag",
+            "shaders/anchors_point.vert",
+            "shaders/anchors_point.frag",
             /*defines=*/ null
           )
           .setVec4("u_Color", floatArrayOf(31.0f / 255.0f, 188.0f / 255.0f, 210.0f / 255.0f, 1.0f))
@@ -185,7 +185,7 @@ class HelloArRenderer(val activity: HelloArActivity) :
         render,
         activity.depthSettings.depthColorVisualizationEnabled()
       )
-      backgroundRenderer.setUseOcclusion(render, activity.depthSettings.useDepthForOcclusion())
+      // Occlusion removed - not needed for data streaming app
     } catch (e: IOException) {
       Log.e(TAG, "Failed to read a required asset file", e)
       showError("Failed to read a required asset file: $e")

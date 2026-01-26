@@ -33,7 +33,6 @@ class PlaybackManager:
             filepath: Path to the recording file
             ar_stream_pb2: The protobuf module (passed from main.py)
         """
-        logger.info(f"Reading recording from {filepath}")
         frame_count = 0
         
         try:
@@ -45,7 +44,6 @@ class PlaybackManager:
                         break  # End of file
                     
                     if len(length_bytes) < 4:
-                        logger.warning(f"Incomplete length prefix at frame {frame_count}")
                         break
                     
                     # Unpack big-endian unsigned int
@@ -59,7 +57,6 @@ class PlaybackManager:
                     # Read frame data
                     frame_data = f.read(frame_length)
                     if len(frame_data) < frame_length:
-                        logger.warning(f"Incomplete frame data at frame {frame_count}")
                         break
                     
                     # Parse protobuf
@@ -76,8 +73,6 @@ class PlaybackManager:
         except Exception as e:
             logger.error(f"Error reading recording: {e}")
             raise
-        
-        logger.info(f"Finished reading {frame_count} frames from {filepath.name}")
     
     async def play(
         self, 
@@ -123,16 +118,11 @@ class PlaybackManager:
                     try:
                         await broadcast_callback(ar_frame)
                         frame_count += 1
-                        
-                        if frame_count % 100 == 0:
-                            logger.debug(f"Played {frame_count} frames")
                             
                     except Exception as e:
                         logger.error(f"Error broadcasting frame: {e}")
                     
                     prev_timestamp = ar_frame.timestamp_ns
-                
-                logger.info(f"Playback finished: {frame_count} frames from {filepath.name}")
                 
                 if not loop:
                     break
@@ -167,8 +157,6 @@ class PlaybackManager:
         self.playback_task = asyncio.create_task(
             self.play(filepath, broadcast_callback, ar_stream_pb2, speed, loop)
         )
-        
-        logger.info(f"Started playback: {filename} (speed={speed}x, loop={loop})")
     
     async def stop_playback(self):
         """Stop current playback."""
@@ -182,7 +170,6 @@ class PlaybackManager:
                 pass
         
         self.playback_task = None
-        logger.info("Playback stopped")
     
     def get_status(self) -> dict:
         """Get current playback status."""

@@ -38,14 +38,14 @@ import com.bayesmech.camalytics.network.StreamConfig
  * ARCore API. The application will display any detected planes and will allow the user to tap on a
  * plane to place a 3D model.
  */
-class HelloArActivity : AppCompatActivity() {
+class DatagrabActivity : AppCompatActivity() {
   companion object {
-    private const val TAG = "HelloArActivity"
+    private const val TAG = "DatagrabActivity"
   }
 
-  lateinit var arCoreSessionHelper: ARCoreSessionLifecycleHelper
-  lateinit var view: HelloArView
-  lateinit var renderer: HelloArRenderer
+  val arCoreSessionHelper = ARCoreSessionHelper(this)
+  lateinit var view: DatagrabView
+  lateinit var renderer: DatagrabRenderer
 
   val depthSettings = DepthSettings()
 
@@ -77,11 +77,11 @@ class HelloArActivity : AppCompatActivity() {
     lifecycle.addObserver(arCoreSessionHelper)
 
     // Set up the Hello AR renderer.
-    renderer = HelloArRenderer(this)
+    renderer = DatagrabRenderer(this)
     lifecycle.addObserver(renderer)
 
     // Set up Hello AR UI.
-    view = HelloArView(this)
+    view = DatagrabView(this)
     lifecycle.addObserver(view)
     setContentView(view.root)
 

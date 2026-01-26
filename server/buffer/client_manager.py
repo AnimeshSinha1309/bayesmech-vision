@@ -23,14 +23,12 @@ class ClientManager:
                 'device_id': device_id,  # Stable device identifier
                 'connection_info': connection_info,  # IP:port for logging
             }
-            logger.info(f"Client {client_id} registered")
 
     def remove_client(self, client_id: str):
         """Unregister client"""
         with self.lock:
             if client_id in self.clients:
                 del self.clients[client_id]
-                logger.info(f"Client {client_id} unregistered")
 
     def find_client_by_device_id(self, device_id: str):
         """Find a client by device_id (returns client_id if found)"""

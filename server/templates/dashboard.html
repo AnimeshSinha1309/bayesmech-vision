@@ -557,7 +557,6 @@
             ws = new WebSocket(wsUrl);
 
             ws.onopen = () => {
-                console.log('Connected to dashboard WebSocket');
                 document.getElementById('connection-status').textContent = 'Connected';
                 refreshClients();
             };
@@ -568,7 +567,6 @@
             };
 
             ws.onclose = () => {
-                console.log('Disconnected from dashboard WebSocket');
                 document.getElementById('connection-status').textContent = 'Disconnected';
                 setTimeout(connectStatusWS, 3000);
             };
@@ -652,14 +650,14 @@
 
         // Update frame display
         function updateFrameDisplay(data) {
-            console.log('Frame update received:', {
-                has_rgb: !!data.rgb_frame,
-                rgb_size: data.rgb_frame ? data.rgb_frame.length : 0,
-                has_depth: !!data.depth_frame,
-                depth_size: data.depth_frame ? data.depth_frame.length : 0,
-                has_camera: !!data.camera,
-                resolution: data.resolution
-            });
+            // console.log('Frame update received:', {
+            //     has_rgb: !!data.rgb_frame,
+            //     rgb_size: data.rgb_frame ? data.rgb_frame.length : 0,
+            //     has_depth: !!data.depth_frame,
+            //     depth_size: data.depth_frame ? data.depth_frame.length : 0,
+            //     has_camera: !!data.camera,
+            //     resolution: data.resolution
+            // });
             
             frameCount++;
             document.getElementById('frame-count').textContent = frameCount;
@@ -676,28 +674,28 @@
 
             // Update RGB stream
             if (data.rgb_frame) {
-                console.log('Setting RGB image source...'); 
+                // console.log('Setting RGB image source...'); 
                 const rgbImg = document.getElementById('rgb-stream');
                 const rgbPlaceholder = document.getElementById('rgb-placeholder');
                 rgbImg.src = 'data:image/jpeg;base64,' + data.rgb_frame;
                 rgbImg.style.display = 'block';
                 rgbPlaceholder.style.display = 'none';
-                console.log('RGB image updated');
+                // console.log('RGB image updated');
             } else {
-                console.warn('No RGB frame in data!');
+                // console.warn('No RGB frame in data!');
             }
 
             // Update depth stream
             if (data.depth_frame) {
-                console.log('Setting depth image source...');
+                // console.log('Setting depth image source...');
                 const depthImg = document.getElementById('depth-stream');
                 const depthPlaceholder = document.getElementById('depth-placeholder');
                 depthImg.src = 'data:image/png;base64,' + data.depth_frame;
                 depthImg.style.display = 'block';
                 depthPlaceholder.style.display = 'none';
-                console.log('Depth image updated');
+                // console.log('Depth image updated');
             } else {
-                console.log('No depth frame in data');
+                // console.log('No depth frame in data');
             }
 
             // Update camera data
