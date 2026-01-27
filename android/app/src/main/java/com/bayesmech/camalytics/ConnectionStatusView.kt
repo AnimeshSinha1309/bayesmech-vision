@@ -59,14 +59,14 @@ class ConnectionStatusView @JvmOverloads constructor(
         statusText = TextView(context).apply {
             textSize = 14f
             setTextColor(Color.WHITE)
-            text = "Connecting..."
+            text = context.getString(R.string.connection_status_connecting)
         }
         
         // Details text (secondary line)
         detailsText = TextView(context).apply {
             textSize = 11f
             setTextColor(Color.parseColor("#CCCCCC"))
-            text = "Initializing connection"
+            text = context.getString(R.string.connection_status_initializing)
         }
         
         textContainer.addView(statusText)
@@ -83,8 +83,8 @@ class ConnectionStatusView @JvmOverloads constructor(
             if (status.isConnected) {
                 // Connected - show green indicator
                 statusIndicator.background = context.getDrawable(android.R.drawable.presence_online)
-                statusText.text = "✓ Connected to Server"
-                detailsText.text = "Streaming AR data • ${status.serverUrl}"
+                statusText.text = context.getString(R.string.connection_status_connected)
+                detailsText.text = context.getString(R.string.connection_status_streaming, status.serverUrl)
                 
                 // Hide the view after 3 seconds when connected
                 visibility = View.VISIBLE
@@ -94,17 +94,17 @@ class ConnectionStatusView @JvmOverloads constructor(
             } else if (status.isRetrying) {
                 // Retrying connection - show orange/yellow indicator
                 statusIndicator.background = context.getDrawable(android.R.drawable.presence_away)
-                statusText.text = "Reconnecting... (Attempt #${status.retryCount})"
+                statusText.text = context.getString(R.string.connection_status_reconnecting, status.retryCount)
                 
                 val retryInfo = if (status.nextRetryInMs != null && status.nextRetryInMs < 1000) {
-                    "Retry in ${status.nextRetryInMs}ms"
+                    context.getString(R.string.connection_retry_milliseconds, status.nextRetryInMs)
                 } else if (status.nextRetryInMs != null) {
-                    "Retry in ${status.nextRetryInMs / 1000}s"
+                    context.getString(R.string.connection_retry_seconds, status.nextRetryInMs / 1000)
                 } else {
-                    "Retrying now..."
+                    context.getString(R.string.connection_retry_now)
                 }
                 
-                var details = status.lastError ?: "Connection lost"
+                var details = status.lastError ?: context.getString(R.string.connection_lost)
                 details += " • $retryInfo"
                 
                 detailsText.text = details
@@ -114,9 +114,9 @@ class ConnectionStatusView @JvmOverloads constructor(
                 statusIndicator.background = context.getDrawable(android.R.drawable.presence_busy)
                 
                 if (status.retryCount > 0) {
-                    statusText.text = "✗ Connection Failed (${status.retryCount} retries)"
+                    statusText.text = context.getString(R.string.connection_status_failed_with_retries, status.retryCount)
                 } else {
-                    statusText.text = "✗ Connection Failed"
+                    statusText.text = context.getString(R.string.connection_status_failed)
                 }
                 
                 val timeStr = status.lastErrorTime?.let { 
@@ -136,7 +136,7 @@ class ConnectionStatusView @JvmOverloads constructor(
             } else {
                 // Connecting
                 statusIndicator.background = context.getDrawable(android.R.drawable.presence_away)
-                statusText.text = "Connecting to Server..."
+                statusText.text = context.getString(R.string.connection_status_connecting_to_server)
                 detailsText.text = status.serverUrl
                 visibility = View.VISIBLE
             }

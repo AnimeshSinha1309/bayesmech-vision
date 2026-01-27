@@ -43,7 +43,7 @@ class DatagrabActivity : AppCompatActivity() {
     private const val TAG = "DatagrabActivity"
   }
 
-  val arCoreSessionHelper = ARCoreSessionHelper(this)
+  lateinit var arCoreSessionHelper: ARCoreSessionLifecycleHelper
   lateinit var view: DatagrabView
   lateinit var renderer: DatagrabRenderer
 
@@ -61,12 +61,12 @@ class DatagrabActivity : AppCompatActivity() {
         val message =
           when (exception) {
             is UnavailableUserDeclinedInstallationException ->
-              "Please install Google Play Services for AR"
-            is UnavailableApkTooOldException -> "Please update ARCore"
-            is UnavailableSdkTooOldException -> "Please update this app"
-            is UnavailableDeviceNotCompatibleException -> "This device does not support AR"
-            is CameraNotAvailableException -> "Camera not available. Try restarting the app."
-            else -> "Failed to create AR session: $exception"
+              getString(R.string.error_arcore_not_installed)
+            is UnavailableApkTooOldException -> getString(R.string.error_arcore_outdated)
+            is UnavailableSdkTooOldException -> getString(R.string.error_app_outdated)
+            is UnavailableDeviceNotCompatibleException -> getString(R.string.error_device_not_compatible)
+            is CameraNotAvailableException -> getString(R.string.error_camera_unavailable)
+            else -> getString(R.string.error_ar_session_failed, exception.toString())
           }
         Log.e(TAG, "ARCore threw an exception", exception)
         view.snackbarHelper.showError(this, message)
@@ -128,7 +128,7 @@ class DatagrabActivity : AppCompatActivity() {
     super.onRequestPermissionsResult(requestCode, permissions, results)
     if (!CameraPermissionHelper.hasCameraPermission(this)) {
       // Use toast instead of snackbar here since the activity will exit.
-      Toast.makeText(this, "Camera permission is needed to run this application", Toast.LENGTH_LONG)
+      Toast.makeText(this, getString(R.string.error_camera_permission_required), Toast.LENGTH_LONG)
         .show()
       if (!CameraPermissionHelper.shouldShowRequestPermissionRationale(this)) {
         // Permission denied with checking "Do not ask again".

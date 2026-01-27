@@ -209,24 +209,8 @@ class DatagrabRenderer(val activity: DatagrabActivity) :
       }
     }
 
-    // Show a message based on whether tracking has failed, if planes are detected, and if the user
-    // has placed any objects.
-    val message: String? =
-      when {
-        camera.trackingState == TrackingState.PAUSED &&
-          camera.trackingFailureReason == TrackingFailureReason.NONE ->
-          activity.getString(R.string.searching_planes)
-        camera.trackingState == TrackingState.PAUSED ->
-          TrackingStateHelper.getTrackingFailureReasonString(camera)
-        session.hasTrackingPlane() ->
-          activity.getString(R.string.waiting_taps) // Kept for now, or change to "Tracking planes"
-        else -> activity.getString(R.string.searching_planes)
-      }
-    if (message == null) {
-      activity.view.snackbarHelper.hide(activity)
-    } else {
-      activity.view.snackbarHelper.showMessage(activity, message)
-    }
+    // Plane tracking status messages removed - object placement functionality was removed
+
 
     // -- Draw background
     // Draw background FIRST - this renders the camera image to the screen

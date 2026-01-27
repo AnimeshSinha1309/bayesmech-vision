@@ -15,24 +15,31 @@
    limitations under the License.
 -->
 <resources>
-  <string translatable="false" name="app_name">HelloAR Kotlin</string>
-  <string translatable="false" name="depth_use_explanation">When Depth is enabled on supported devices, virtual objects adapt to the environment by blending in with the real world.</string>
-  <string translatable="false" name="button_text_enable_depth">Enable</string>
-  <string translatable="false" name="button_text_disable_depth">Disable</string>
-  <string translatable="false" name="options_title_with_depth">Your device supports depth</string>
-  <string translatable="false" name="options_title_without_depth">Your device does not support depth</string>
-  <string translatable="false" name="done">Done</string>
-  <string-array translatable="false" name="depth_options_array">
-    <item>Enable depth</item>
-    <item>Show depth map</item>
-  </string-array>
-  <string translatable="false" name="options_title_instant_placement">Instant Placement options</string>
-  <string-array translatable="false" name="instant_placement_options_array">
-    <item>Enable Instant Placement</item>
-  </string-array>
+  <!-- App Name -->
+  <string translatable="false" name="app_name">CamAlytics</string>
 
-  <string translatable="false" name="searching_planes">Searching for surfaces...</string>
-  <string translatable="false" name="waiting_taps">Tap on a surface to place an object.</string>
+  <!-- Connection Status -->
+  <string name="connection_status_connecting">Connecting...</string>
+  <string name="connection_status_initializing">Initializing connection</string>
+  <string name="connection_status_connected">✓ Connected to Server</string>
+  <string name="connection_status_streaming">Streaming AR data • %1$s</string>
+  <string name="connection_status_reconnecting">Reconnecting... (Attempt #%1$d)</string>
+  <string name="connection_retry_milliseconds">Retry in %1$dms</string>
+  <string name="connection_retry_seconds">Retry in %1$ds</string>
+  <string name="connection_status_failed">✗ Connection Failed</string>
+  <string name="connection_status_failed_with_retries">✗ Connection Failed (%1$d retries)</string>
+  <string name="connection_status_connecting_to_server">Connecting to Server...</string>
+  <string name="connection_retry_now">Retrying now...</string>
+  <string name="connection_lost">Connection lost</string>
+
+  <!-- ARCore Errors -->
+  <string name="error_arcore_not_installed">Please install Google Play Services for AR</string>
+  <string name="error_arcore_outdated">Please update ARCore</string>
+  <string name="error_app_outdated">Please update this app</string>
+  <string name="error_device_not_compatible">This device does not support AR</string>
+  <string name="error_camera_unavailable">Camera not available. Try restarting the app.</string>
+  <string name="error_ar_session_failed">Failed to create AR session: %1$s</string>
+  <string name="error_camera_permission_required">Camera permission is needed to run this application</string>
 
   <!-- Recording -->
   <string translatable="false" name="record_button_description">Record AR session</string>
@@ -40,4 +47,17 @@
   <string translatable="false" name="recording_stopped">Recording saved: %1$s</string>
   <string translatable="false" name="recording_error">Failed to start recording</string>
 
+  <!-- Depth Configuration -->
+  <string name="options_title_with_depth">Depth Options</string>
+  <string name="options_title_without_depth">Options</string>
+  <string name="depth_use_explanation">Show and use depth data for improved AR tracking</string>
+  <string name="button_text_enable_depth">Enable Depth</string>
+  <string name="button_text_disable_depth">Disable Depth</string>
+  <string name="done">Done</string>
+  <string-array translatable="false" name="depth_options_array">
+    <item>Enable depth</item>
+    <item>Show depth map</item>
+  </string-array>
+
 </resources>
+

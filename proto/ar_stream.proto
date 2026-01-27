@@ -42,10 +42,6 @@ message CameraData {
   uint32 image_width = 5;
   uint32 image_height = 6;
 
-  // FOV
-  float fov_horizontal_deg = 7;
-  float fov_vertical_deg = 8;
-
   // Camera tracking state
   TrackingState tracking_state = 9;
 }
@@ -82,9 +78,6 @@ message DepthFrame {
 }
 
 message MotionData {
-  // Device pose in world space
-  Pose device_pose = 1;
-
   // Linear velocity from ARCore pose differentiation (m/s) - more accurate
   Vector3 linear_velocity_pose = 2;
   
@@ -110,12 +103,6 @@ message ARCoreData {
 
   // Point cloud (sparse, subsampled)
   PointCloud point_cloud = 2;
-
-  // Light estimation
-  LightEstimate light_estimate = 3;
-
-  // Anchors
-  repeated Anchor anchors = 4;
 }
 
 // Supporting messages
@@ -150,18 +137,6 @@ message Plane {
 message PointCloud {
   repeated float points = 1 [packed=true];  // X,Y,Z,confidence (4 floats per point)
   uint32 point_count = 2;
-}
-
-message LightEstimate {
-  Vector3 main_light_direction = 1;
-  Vector3 main_light_intensity = 2;
-  repeated float spherical_harmonics = 3 [packed=true];  // 27 floats
-}
-
-message Anchor {
-  bytes id = 1;
-  Pose pose = 2;
-  TrackingState tracking_state = 3;
 }
 
 // Enums
