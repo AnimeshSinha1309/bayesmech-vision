@@ -1,0 +1,7 @@
+# Server side excludes
+**/.venv/
+**/__pycache__/
+server/data/
+
+# Log and savedata files
+recordings/
