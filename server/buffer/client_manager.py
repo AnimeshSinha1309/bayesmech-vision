@@ -22,6 +22,8 @@ class ClientManager:
                 'last_frame_at': None,
                 'device_id': device_id,  # Stable device identifier
                 'connection_info': connection_info,  # IP:port for logging
+                'seg_requests_sent': 0,  # Counter for segmentation requests sent
+                'seg_outputs_received': 0,  # Counter for segmentation outputs received
             }
 
     def remove_client(self, client_id: str):
@@ -53,3 +55,25 @@ class ClientManager:
         with self.lock:
             if client_id in self.clients:
                 self.clients[client_id]['last_frame_at'] = time.time()
+
+    def increment_seg_request(self, client_id: str):
+        """Increment segmentation request counter"""
+        with self.lock:
+            if client_id in self.clients:
+                self.clients[client_id]['seg_requests_sent'] += 1
+
+    def increment_seg_output(self, client_id: str):
+        """Increment segmentation output counter"""
+        with self.lock:
+            if client_id in self.clients:
+                self.clients[client_id]['seg_outputs_received'] += 1
+
+    def get_seg_counters(self, client_id: str) -> dict:
+        """Get segmentation counters for a client"""
+        with self.lock:
+            if client_id in self.clients:
+                return {
+                    'seg_requests_sent': self.clients[client_id]['seg_requests_sent'],
+                    'seg_outputs_received': self.clients[client_id]['seg_outputs_received']
+                }
+            return {'seg_requests_sent': 0, 'seg_outputs_received': 0}

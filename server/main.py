@@ -11,7 +11,7 @@ This server receives RGB and depth data from Android ARCore apps and displays
 them in a real-time web dashboard. No processing or storage - just streaming.
 """
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 import asyncio
@@ -27,6 +27,7 @@ from typing import Set
 
 from buffer.client_manager import ClientManager
 from playback import PlaybackManager
+from segmentation_client import segmentation_client
 
 # Setup logging
 logging.basicConfig(
@@ -57,12 +58,11 @@ app.add_middleware(
 # Initialize components
 client_manager = ClientManager()
 
-# Import protobuf from the proto/ directory
+# Import protobuf from the root proto/ directory
 try:
     import sys
-    proto_path = Path(__file__).parent / 'proto'
-    sys.path.insert(0, str(proto_path))
-    import ar_stream_pb2
+    sys.path.append(str(Path(__file__).parent.parent))
+    from proto import ar_stream_pb2
 except ImportError as e:
     logger.error(f"✗ Failed to import protobuf module: {e}")
     logger.error("Check that ar_stream_pb2.py exists in the proto/ directory!")
@@ -73,16 +73,30 @@ except ImportError as e:
 dashboard_connections: Set[WebSocket] = set()
 # Store latest frame data for each client
 latest_frames = {}
+# Cache for latest segmentation masks per client
+latest_segmentation_masks: dict = {}
 # Playback manager
 playback_manager = PlaybackManager(recordings_dir="recordings")
 
 @app.on_event("startup")
 async def startup():
-    pass
+    """Initialize services on startup"""
+    logger.info("Starting BayesMech CamAlytics Server...")
+
+    # Connect to segmentation server
+    logger.info("Connecting to segmentation service...")
+    await segmentation_client.connect()
+
+    # Register callback for segmentation results
+    segmentation_client.set_result_callback(handle_segmentation_result)
 
 @app.on_event("shutdown")
 async def shutdown():
-    pass
+    """Cleanup on shutdown"""
+    logger.info("Shutting down server...")
+
+    # Close segmentation client
+    await segmentation_client.close()
 
 @app.websocket("/ar-stream")
 async def websocket_endpoint(websocket: WebSocket):
@@ -154,7 +168,19 @@ async def websocket_endpoint(websocket: WebSocket):
             if frame_buffer:
                 frame_buffer.add_frame(frame_data)
                 client_manager.update_last_frame_time(client_id)
-            
+
+            # Send frame to segmentation server (non-blocking, fire-and-forget)
+            if 'rgb_image' in frame_data and frame_data['rgb_image'] is not None:
+                asyncio.create_task(
+                    segmentation_client.send_frame(
+                        client_id,
+                        frame_data['rgb_image'],
+                        ar_frame.frame_number
+                    )
+                )
+                # Increment segmentation request counter
+                client_manager.increment_seg_request(client_id)
+
             # Broadcast to dashboard (non-blocking)
             if dashboard_connections:
                 asyncio.create_task(broadcast_frame_to_dashboards(client_id, frame_data))
@@ -308,11 +334,12 @@ async def get_clients():
     """Get list of all connected clients with stats"""
     all_clients = client_manager.get_all_clients()
     clients_data = []
-    
+
     for client_id in all_clients:
         buffer = client_manager.get_frame_buffer(client_id)
         if buffer:
             stats = buffer.get_stats()
+            seg_counters = client_manager.get_seg_counters(client_id)
             # Transform to match dashboard expected format
             client_data = {
                 'client_id': stats['client_id'],
@@ -323,12 +350,26 @@ async def get_clients():
                 'depth_percentage': stats['depth_percentage'],
                 'frames_with_depth': stats['frames_with_depth'],
                 'frames_without_depth': stats['frames_without_depth'],
+                'seg_requests_sent': seg_counters['seg_requests_sent'],
+                'seg_outputs_received': seg_counters['seg_outputs_received'],
             }
             clients_data.append(client_data)
-    
+
     return {
         "clients": clients_data,
         "count": len(clients_data)
+    }
+
+@app.get("/api/health")
+async def health_check():
+    """Health check - confirms this is the split-service version"""
+    seg_status = await segmentation_client.get_status()
+    return {
+        "version": "split-service",
+        "main_server": "running",
+        "segmentation_server": "connected" if seg_status.get("connected") else "disconnected",
+        "active_clients": len(client_manager.get_all_clients()),
+        "dashboard_connections": len(dashboard_connections),
     }
 
 @app.get("/api/recordings")
@@ -474,6 +515,159 @@ async def dashboard_websocket(websocket: WebSocket):
     finally:
         dashboard_connections.discard(websocket)
 
+
+@app.websocket("/ws/segmentation")
+async def segmentation_websocket(websocket: WebSocket):
+    """WebSocket endpoint for segmentation prompts and results"""
+    await websocket.accept()
+    logger.info("Segmentation client connected")
+
+    try:
+        while True:
+            # Receive prompt requests from dashboard
+            message = await websocket.receive_text()
+            data = json.loads(message)
+
+            try:
+                if data.get('type') == 'add_text_prompt':
+                    # Text-based segmentation prompt
+                    client_id = data.get('client_id')
+                    text_prompt = data.get('text')
+
+                    logger.info(f"Segmentation request: client={client_id}, prompt='{text_prompt}'")
+
+                    # Send to segmentation server
+                    result = await segmentation_client.send_prompt(
+                        client_id=client_id,
+                        text=text_prompt
+                    )
+
+                    response = {
+                        'type': 'segmentation_queued',
+                        'client_id': client_id,
+                        'message': 'Segmentation started, results will stream when ready'
+                    }
+                    await websocket.send_text(json.dumps(response))
+
+                elif data.get('type') == 'add_point_prompt':
+                    # Point-based segmentation prompt
+                    client_id = data.get('client_id')
+                    points = data.get('points')
+                    labels = data.get('labels')
+
+                    logger.info(f"Point segmentation: client={client_id}, points={len(points)}")
+
+                    # Send to segmentation server
+                    result = await segmentation_client.send_prompt(
+                        client_id=client_id,
+                        points=points,
+                        labels=labels
+                    )
+
+                    response = {
+                        'type': 'segmentation_queued',
+                        'client_id': client_id,
+                        'message': 'Segmentation started, results will stream when ready'
+                    }
+                    await websocket.send_text(json.dumps(response))
+
+                elif data.get('type') == 'clear_masks':
+                    # Clear all segmentation masks for a client
+                    client_id = data.get('client_id')
+                    await segmentation_client.clear_session(client_id)
+
+                    # Also clear local cache
+                    if client_id in latest_segmentation_masks:
+                        del latest_segmentation_masks[client_id]
+
+                    response = {
+                        'type': 'masks_cleared',
+                        'client_id': client_id
+                    }
+                    await websocket.send_text(json.dumps(response))
+
+                elif data.get('type') == 'get_status':
+                    # Get segmentation service status
+                    status = await segmentation_client.get_status()
+                    await websocket.send_text(json.dumps({
+                        'type': 'status',
+                        'status': status
+                    }))
+
+            except ValueError as e:
+                # Send error back to client (service-layer errors)
+                logger.warning(f"Segmentation validation error: {e}")
+                await websocket.send_text(json.dumps({
+                    'type': 'error',
+                    'message': str(e)
+                }))
+
+            except Exception as e:
+                logger.error(f"Segmentation error: {e}", exc_info=True)
+                await websocket.send_text(json.dumps({
+                    'type': 'error',
+                    'message': f"Internal error: {str(e)}"
+                }))
+
+    except WebSocketDisconnect:
+        logger.info("Segmentation client disconnected")
+    except Exception as e:
+        logger.error(f"Segmentation WebSocket error: {e}", exc_info=True)
+
+
+async def handle_segmentation_result(data: dict):
+    """
+    Handle segmentation results from segmentation server
+    Called when segmentation server sends results via WebSocket
+    """
+    if data.get('type') == 'segmentation_result':
+        client_id = data.get('client_id')
+        encoded_masks = data.get('masks', {})
+        prompt = data.get('prompt', 'unknown')
+
+        # Cache the latest masks for this client
+        latest_segmentation_masks[client_id] = encoded_masks
+
+        # Increment segmentation output counter
+        client_manager.increment_seg_output(client_id)
+
+        logger.info(f"Received segmentation result for {client_id}: {len(encoded_masks)} masks")
+
+        # Broadcast to dashboards
+        await broadcast_segmentation_to_dashboards(client_id, encoded_masks, prompt)
+
+
+async def broadcast_segmentation_to_dashboards(client_id: str, encoded_masks: dict, prompt: str):
+    """Broadcast segmentation results to all dashboard connections"""
+    if not dashboard_connections:
+        logger.debug(f"[Segmentation] No dashboard connections to broadcast to")
+        return
+
+    logger.info(f"[Segmentation] Broadcasting to {len(dashboard_connections)} dashboards: {len(encoded_masks)} masks for {client_id}")
+
+    message = {
+        'type': 'segmentation_update',
+        'client_id': client_id,
+        'masks': encoded_masks,
+        'prompt': prompt
+    }
+
+    msg_json = json.dumps(message)
+    logger.debug(f"[Segmentation] Message size: {len(msg_json)} bytes")
+    disconnected = set()
+
+    for connection in dashboard_connections:
+        try:
+            await connection.send_text(msg_json)
+            logger.debug(f"[Segmentation] Sent segmentation_update to dashboard")
+        except Exception as e:
+            logger.warning(f"[Segmentation] Failed to send to dashboard: {e}")
+            disconnected.add(connection)
+
+    dashboard_connections.difference_update(disconnected)
+    logger.info(f"[Segmentation] Broadcast complete, {len(disconnected)} disconnected")
+
+
 def encode_image_to_base64(image_array: np.ndarray, format='JPEG') -> str:
     """Convert numpy array image to base64 string"""
     # Log image statistics
@@ -487,19 +681,78 @@ def encode_image_to_base64(image_array: np.ndarray, format='JPEG') -> str:
 def encode_depth_to_base64(depth_array: np.ndarray) -> str:
     """Convert depth map to base64 PNG (colorized)"""
     # Normalize depth to 0-255
-    depth_normalized = ((depth_array - depth_array.min()) / 
+    depth_normalized = ((depth_array - depth_array.min()) /
                        (depth_array.max() - depth_array.min()) * 255).astype(np.uint8)
-    
+
     # Apply colormap for better visualization
     from PIL import ImageOps
     img = Image.fromarray(depth_normalized)
     img = ImageOps.colorize(img.convert('L'), 'black', 'white', 'blue')
-    
+
     buffer = io.BytesIO()
     img.save(buffer, format='PNG')
     buffer.seek(0)
     encoded = base64.b64encode(buffer.read()).decode('utf-8')
     return encoded
+
+
+def composite_rgb_with_cached_masks(rgb_frame: np.ndarray, encoded_masks: dict) -> np.ndarray:
+    """
+    Composite RGB frame with cached base64-encoded masks
+
+    Args:
+        rgb_frame: RGB image (H, W, 3)
+        encoded_masks: Dictionary of obj_id -> base64-encoded mask
+
+    Returns:
+        Composited RGB image with overlays (H, W, 3)
+    """
+    import cv2
+
+    # Create copy of RGB frame
+    output = rgb_frame.copy()
+
+    # Color palette for different objects
+    colors = [
+        [255, 0, 0],    # Red
+        [0, 255, 0],    # Green
+        [0, 0, 255],    # Blue
+        [255, 255, 0],  # Yellow
+        [255, 0, 255],  # Magenta
+        [0, 255, 255],  # Cyan
+    ]
+
+    # Decode and blend each mask
+    for idx, (obj_id, mask_base64) in enumerate(encoded_masks.items()):
+        try:
+            # Decode base64 mask (RGBA PNG)
+            mask_data = base64.b64decode(mask_base64)
+            mask_img = Image.open(io.BytesIO(mask_data))
+            mask_rgba = np.array(mask_img)
+
+            # Extract alpha channel as mask
+            if mask_rgba.shape[2] == 4:
+                mask = mask_rgba[:, :, 3] > 0
+            else:
+                mask = mask_rgba[:, :, 0] > 0
+
+            # Resize mask if needed
+            if mask.shape[:2] != rgb_frame.shape[:2]:
+                mask = cv2.resize(mask.astype(np.uint8),
+                                (rgb_frame.shape[1], rgb_frame.shape[0]),
+                                interpolation=cv2.INTER_NEAREST).astype(bool)
+
+            # Get color for this object
+            color = colors[idx % len(colors)]
+
+            # Blend with 0.5 alpha
+            output[mask] = (output[mask] * 0.5 + np.array(color) * 0.5).astype(np.uint8)
+
+        except Exception as e:
+            logger.error(f"Failed to decode mask {obj_id}: {e}")
+            continue
+
+    return output
 
 async def broadcast_frame_to_dashboards(client_id: str, frame_data: dict):
     """Broadcast frame data to all connected dashboards"""
@@ -523,6 +776,26 @@ async def broadcast_frame_to_dashboards(client_id: str, frame_data: dict):
             dashboard_msg['rgb_frame'] = rgb_base64
             height, width = frame_data['rgb_image'].shape[:2]
             dashboard_msg['resolution'] = {'width': width, 'height': height}
+
+            # Generate segmentation overlay if cached masks are available
+            if client_id in latest_segmentation_masks:
+                encoded_masks = latest_segmentation_masks[client_id]
+                if encoded_masks:
+                    logger.info(f"[Segmentation] Generating overlay for {client_id} with {len(encoded_masks)} masks")
+                    try:
+                        composited = composite_rgb_with_cached_masks(
+                            frame_data['rgb_image'], encoded_masks
+                        )
+                        segmentation_base64 = encode_image_to_base64(composited)
+                        dashboard_msg['segmentation_frame'] = segmentation_base64
+                        logger.info(f"[Segmentation] Overlay generated, size: {len(segmentation_base64)} bytes")
+                    except Exception as e:
+                        logger.error(f"[Segmentation] Failed to composite: {e}", exc_info=True)
+                else:
+                    logger.debug(f"[Segmentation] No masks in cache for {client_id}")
+            else:
+                logger.debug(f"[Segmentation] Client {client_id} not in latest_segmentation_masks cache")
+
         except Exception as e:
             logger.error(f"  ✗ Failed to encode RGB image: {e}", exc_info=True)
     else:
@@ -557,7 +830,13 @@ async def broadcast_frame_to_dashboards(client_id: str, frame_data: dict):
     
     # Store latest frame
     latest_frames[client_id] = dashboard_msg
-    
+
+    # Log what's in the message
+    has_rgb = 'rgb_frame' in dashboard_msg
+    has_seg = 'segmentation_frame' in dashboard_msg
+    has_depth = 'depth_frame' in dashboard_msg
+    logger.info(f"[Broadcast] Sending frame_update for {client_id}: rgb={has_rgb}, seg={has_seg}, depth={has_depth}")
+
     # Broadcast to all dashboard connections
     msg_json = json.dumps(dashboard_msg)
     logger.debug(f"  Broadcasting JSON message: {len(msg_json)} bytes")

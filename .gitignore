@@ -5,3 +5,5 @@ server/data/
 
 # Log and savedata files
 recordings/
+segmentation/models/
+segmentation/output/

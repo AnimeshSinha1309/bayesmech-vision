@@ -1,0 +1,33 @@
+# Segmentation Model Configuration
+# Choose which model to use: sam2 or sam3
+
+model:
+  type: "sam2"  # Options: "sam2" or "sam3"
+
+  # SAM2 Configuration (Recommended for 6GB GPU)
+  sam2:
+    variant: "small"  # Options: "tiny", "small", "base_plus", "large"
+    checkpoint_path: "models/sam2/sam2.1_hiera_small.pt"
+    config_path: "configs/sam2.1/sam2.1_hiera_s.yaml"  # Full config path in SAM2 package
+    vos_optimized: false  # Disabled for now (requires torch compilation)
+    apply_postprocessing: true
+
+  # SAM3 Configuration (Requires 8GB+ VRAM)
+  sam3:
+    checkpoint_path: "models/sam3/sam3.pt"
+    apply_temporal_disambiguation: true
+
+# Streaming settings
+streaming:
+  frame_buffer_size: 20  # Reduced from 30 for memory efficiency
+  segmentation_interval: 3  # Segment every N frames (higher = less memory)
+  max_tracked_objects: 10  # Maximum number of objects to track simultaneously
+  auto_segment_on_start: true  # Automatically segment all objects when frames arrive
+  auto_segment_grid_size: 32  # Grid spacing for automatic point prompts (pixels)
+  debug_logs: true  # Enable debug logging for segmentation
+  session_timeout_minutes: 5  # Auto-cleanup inactive sessions after N minutes
+
+# Memory optimization
+memory:
+  pytorch_cuda_alloc_conf: "expandable_segments:True"
+  enable_amp: false  # Automatic Mixed Precision (float16) - experimental

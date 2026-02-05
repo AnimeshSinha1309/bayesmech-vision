@@ -8,7 +8,7 @@ echo "============================================"
 echo ""
 
 # Find and kill existing server process
-SERVER_PID=$(ps aux | grep "python main.py" | grep -v grep | awk '{print $2}')
+SERVER_PID=$(ps aux | grep "uv run main.py" | grep -v grep | awk '{print $2}')
 
 if [ ! -z "$SERVER_PID" ]; then
     echo "Stopping existing server (PID: $SERVER_PID)..."
@@ -33,4 +33,4 @@ echo "============================================"
 echo ""
 
 # Start the server
-python main.py
+uv run main.py
