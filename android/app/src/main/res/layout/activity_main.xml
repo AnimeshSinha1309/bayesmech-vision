@@ -57,4 +57,18 @@
       android:contentDescription="@string/record_button_description"
       android:scaleType="fitCenter"/>
 
+  <ImageButton
+      android:id="@+id/recordings_button"
+      android:layout_width="56dp"
+      android:layout_height="56dp"
+      android:layout_toStartOf="@id/record_button"
+      android:layout_alignBottom="@id/record_button"
+      android:layout_marginEnd="16dp"
+      android:src="@android:drawable/ic_menu_view"
+      android:background="?attr/selectableItemBackgroundBorderless"
+      android:contentDescription="View Recordings"
+      android:scaleType="fitCenter"
+      android:padding="12dp"
+      android:tint="@android:color/white"/>
+
 </RelativeLayout>

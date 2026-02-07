@@ -15,6 +15,7 @@
  */
 package com.bayesmech.camalytics
 
+import android.content.Intent
 import android.content.res.Resources
 import android.opengl.GLSurfaceView
 import android.view.View
@@ -87,6 +88,13 @@ class DatagrabView(val activity: DatagrabActivity) : DefaultLifecycleObserver {
           ).show()
         }
       }
+    }
+  }
+
+  val recordingsButton = root.findViewById<ImageButton>(R.id.recordings_button).apply {
+    setOnClickListener {
+      val intent = Intent(activity, RecordingsActivity::class.java)
+      activity.startActivity(intent)
     }
   }
 
