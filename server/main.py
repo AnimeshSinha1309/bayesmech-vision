@@ -75,6 +75,12 @@ dashboard_connections: Set[WebSocket] = set()
 latest_frames = {}
 # Cache for latest segmentation masks per client
 latest_segmentation_masks: dict = {}
+# Track segmentation enabled state per client
+segmentation_enabled: dict = {}  # client_id -> bool
+# Track last segmentation frame time per client for throttling
+last_segmentation_time: dict = {}  # client_id -> timestamp
+# Segmentation frame interval (seconds) - only send 1 frame per second
+SEGMENTATION_FRAME_INTERVAL = 1.0
 # Playback manager
 playback_manager = PlaybackManager(recordings_dir="recordings")
 
@@ -170,16 +176,25 @@ async def websocket_endpoint(websocket: WebSocket):
                 client_manager.update_last_frame_time(client_id)
 
             # Send frame to segmentation server (non-blocking, fire-and-forget)
+            # Only if segmentation is enabled for this client (default: True)
+            # Throttle to ~1 fps to avoid overwhelming the segmentation server
             if 'rgb_image' in frame_data and frame_data['rgb_image'] is not None:
-                asyncio.create_task(
-                    segmentation_client.send_frame(
-                        client_id,
-                        frame_data['rgb_image'],
-                        ar_frame.frame_number
-                    )
-                )
-                # Increment segmentation request counter
-                client_manager.increment_seg_request(client_id)
+                if segmentation_enabled.get(client_id, True):
+                    current_time = asyncio.get_event_loop().time()
+                    last_time = last_segmentation_time.get(client_id, 0)
+
+                    # Only send if enough time has passed since last frame
+                    if current_time - last_time >= SEGMENTATION_FRAME_INTERVAL:
+                        last_segmentation_time[client_id] = current_time
+                        asyncio.create_task(
+                            segmentation_client.send_frame(
+                                client_id,
+                                frame_data['rgb_image'],
+                                ar_frame.frame_number
+                            )
+                        )
+                        # Increment segmentation request counter
+                        client_manager.increment_seg_request(client_id)
 
             # Broadcast to dashboard (non-blocking)
             if dashboard_connections:
@@ -193,6 +208,14 @@ async def websocket_endpoint(websocket: WebSocket):
         logger.error(f"  Error details: {str(e)}")
     finally:
         client_manager.remove_client(client_id)
+
+        # Cleanup segmentation state
+        if client_id in segmentation_enabled:
+            del segmentation_enabled[client_id]
+        if client_id in last_segmentation_time:
+            del last_segmentation_time[client_id]
+        if client_id in latest_segmentation_masks:
+            del latest_segmentation_masks[client_id]
 
 
 def extract_frame_data(ar_frame, client_id: str) -> dict:
@@ -371,6 +394,53 @@ async def health_check():
         "active_clients": len(client_manager.get_all_clients()),
         "dashboard_connections": len(dashboard_connections),
     }
+
+@app.post("/api/segmentation/enable")
+async def enable_segmentation(request: dict):
+    """Enable segmentation for a client"""
+    client_id = request.get("client_id")
+    if not client_id:
+        raise HTTPException(status_code=400, detail="Missing client_id")
+
+    # Enable segmentation
+    segmentation_enabled[client_id] = True
+
+    # Reset throttle timer to allow immediate frame
+    last_segmentation_time[client_id] = 0
+
+    # Clear existing session to restart fresh
+    await segmentation_client.clear_session(client_id)
+
+    # Clear cached masks
+    if client_id in latest_segmentation_masks:
+        del latest_segmentation_masks[client_id]
+
+    logger.info(f"Segmentation enabled for {client_id}")
+    return {"status": "enabled", "client_id": client_id}
+
+@app.post("/api/segmentation/disable")
+async def disable_segmentation(request: dict):
+    """Disable segmentation for a client"""
+    client_id = request.get("client_id")
+    if not client_id:
+        raise HTTPException(status_code=400, detail="Missing client_id")
+
+    # Disable segmentation
+    segmentation_enabled[client_id] = False
+
+    # Clear throttle timer
+    if client_id in last_segmentation_time:
+        del last_segmentation_time[client_id]
+
+    # Clear session
+    await segmentation_client.clear_session(client_id)
+
+    # Clear cached masks
+    if client_id in latest_segmentation_masks:
+        del latest_segmentation_masks[client_id]
+
+    logger.info(f"Segmentation disabled for {client_id}")
+    return {"status": "disabled", "client_id": client_id}
 
 @app.get("/api/recordings")
 async def get_recordings():
@@ -625,6 +695,10 @@ async def handle_segmentation_result(data: dict):
         encoded_masks = data.get('masks', {})
         prompt = data.get('prompt', 'unknown')
 
+        # Ignore if segmentation is disabled for this client
+        if not segmentation_enabled.get(client_id, True):
+            return
+
         # Cache the latest masks for this client
         latest_segmentation_masks[client_id] = encoded_masks
 
@@ -640,10 +714,7 @@ async def handle_segmentation_result(data: dict):
 async def broadcast_segmentation_to_dashboards(client_id: str, encoded_masks: dict, prompt: str):
     """Broadcast segmentation results to all dashboard connections"""
     if not dashboard_connections:
-        logger.debug(f"[Segmentation] No dashboard connections to broadcast to")
         return
-
-    logger.info(f"[Segmentation] Broadcasting to {len(dashboard_connections)} dashboards: {len(encoded_masks)} masks for {client_id}")
 
     message = {
         'type': 'segmentation_update',
@@ -653,19 +724,16 @@ async def broadcast_segmentation_to_dashboards(client_id: str, encoded_masks: di
     }
 
     msg_json = json.dumps(message)
-    logger.debug(f"[Segmentation] Message size: {len(msg_json)} bytes")
     disconnected = set()
 
     for connection in dashboard_connections:
         try:
             await connection.send_text(msg_json)
-            logger.debug(f"[Segmentation] Sent segmentation_update to dashboard")
         except Exception as e:
-            logger.warning(f"[Segmentation] Failed to send to dashboard: {e}")
+            logger.warning(f"Failed to send segmentation to dashboard: {e}")
             disconnected.add(connection)
 
     dashboard_connections.difference_update(disconnected)
-    logger.info(f"[Segmentation] Broadcast complete, {len(disconnected)} disconnected")
 
 
 def encode_image_to_base64(image_array: np.ndarray, format='JPEG') -> str:
@@ -777,24 +845,18 @@ async def broadcast_frame_to_dashboards(client_id: str, frame_data: dict):
             height, width = frame_data['rgb_image'].shape[:2]
             dashboard_msg['resolution'] = {'width': width, 'height': height}
 
-            # Generate segmentation overlay if cached masks are available
-            if client_id in latest_segmentation_masks:
+            # Generate segmentation overlay if cached masks are available and enabled
+            if segmentation_enabled.get(client_id, True) and client_id in latest_segmentation_masks:
                 encoded_masks = latest_segmentation_masks[client_id]
                 if encoded_masks:
-                    logger.info(f"[Segmentation] Generating overlay for {client_id} with {len(encoded_masks)} masks")
                     try:
                         composited = composite_rgb_with_cached_masks(
                             frame_data['rgb_image'], encoded_masks
                         )
                         segmentation_base64 = encode_image_to_base64(composited)
                         dashboard_msg['segmentation_frame'] = segmentation_base64
-                        logger.info(f"[Segmentation] Overlay generated, size: {len(segmentation_base64)} bytes")
                     except Exception as e:
-                        logger.error(f"[Segmentation] Failed to composite: {e}", exc_info=True)
-                else:
-                    logger.debug(f"[Segmentation] No masks in cache for {client_id}")
-            else:
-                logger.debug(f"[Segmentation] Client {client_id} not in latest_segmentation_masks cache")
+                        logger.error(f"Failed to composite segmentation: {e}", exc_info=True)
 
         except Exception as e:
             logger.error(f"  ✗ Failed to encode RGB image: {e}", exc_info=True)
@@ -831,15 +893,8 @@ async def broadcast_frame_to_dashboards(client_id: str, frame_data: dict):
     # Store latest frame
     latest_frames[client_id] = dashboard_msg
 
-    # Log what's in the message
-    has_rgb = 'rgb_frame' in dashboard_msg
-    has_seg = 'segmentation_frame' in dashboard_msg
-    has_depth = 'depth_frame' in dashboard_msg
-    logger.info(f"[Broadcast] Sending frame_update for {client_id}: rgb={has_rgb}, seg={has_seg}, depth={has_depth}")
-
     # Broadcast to all dashboard connections
     msg_json = json.dumps(dashboard_msg)
-    logger.debug(f"  Broadcasting JSON message: {len(msg_json)} bytes")
     disconnected = set()
     
     for connection in dashboard_connections:

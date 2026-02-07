@@ -462,7 +462,14 @@
                 <div class="stream-card">
                     <div class="stream-header">
                         <h3 class="stream-title">Segmentation Overlay</h3>
-                        <span class="stream-badge" id="segmentation-status">Waiting</span>
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                            <button id="segmentation-toggle" onclick="toggleSegmentation()"
+                                    style="padding: 0.25rem 0.75rem; border-radius: 6px; border: 1px solid var(--border);
+                                           background: var(--success); color: white; cursor: pointer; font-size: 0.875rem;">
+                                ON
+                            </button>
+                            <span class="stream-badge" id="segmentation-status">Waiting</span>
+                        </div>
                     </div>
                     <div class="stream-viewer">
                         <img id="segmentation-stream" src="" alt="Segmentation Stream" style="display: none;">
@@ -562,6 +569,7 @@
         let frameCount = 0;
         let lastFrameTime = Date.now();
         let fpsHistory = [];
+        let segmentationEnabled = true;
 
         // Connect to status WebSocket
         function connectStatusWS() {
@@ -578,7 +586,6 @@
             ws.onmessage = (event) => {
                 try {
                     const data = JSON.parse(event.data);
-                    console.log('[WebSocket] Message received, size:', event.data.length, 'bytes');
                     handleDashboardUpdate(data);
                 } catch (e) {
                     console.error('[WebSocket] Failed to parse message:', e, event.data.substring(0, 100));
@@ -593,6 +600,49 @@
             ws.onerror = (error) => {
                 console.error('WebSocket error:', error);
             };
+        }
+
+        // Toggle segmentation on/off
+        function toggleSegmentation() {
+            segmentationEnabled = !segmentationEnabled;
+
+            const toggleBtn = document.getElementById('segmentation-toggle');
+            const segStatus = document.getElementById('segmentation-status');
+            const segImg = document.getElementById('segmentation-stream');
+            const segPlaceholder = document.getElementById('segmentation-placeholder');
+
+            if (segmentationEnabled) {
+                // Turn ON
+                toggleBtn.textContent = 'ON';
+                toggleBtn.style.background = 'var(--success)';
+                segStatus.textContent = 'Waiting';
+                segStatus.style.background = 'var(--warning)';
+
+                // Request to restart segmentation (will clear and restart session)
+                fetch('/api/segmentation/enable', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({client_id: selectedClient})
+                }).catch(err => console.error('Failed to enable segmentation:', err));
+
+            } else {
+                // Turn OFF
+                toggleBtn.textContent = 'OFF';
+                toggleBtn.style.background = 'var(--error)';
+                segStatus.textContent = 'Disabled';
+                segStatus.style.background = 'var(--error)';
+
+                // Clear display
+                segImg.style.display = 'none';
+                segPlaceholder.style.display = 'flex';
+
+                // Request to stop segmentation (will clear session)
+                fetch('/api/segmentation/disable', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({client_id: selectedClient})
+                }).catch(err => console.error('Failed to disable segmentation:', err));
+            }
         }
 
         // Refresh client list
@@ -641,14 +691,12 @@
 
             // Auto-select first client if none selected
             if (!selectedClient && clients.length > 0) {
-                console.log('[Dashboard] Auto-selecting first client:', clients[0].client_id);
                 selectClient(clients[0].client_id);
             }
         }
 
         // Select a client to view
         function selectClient(clientId) {
-            console.log('[Dashboard] Selecting client:', clientId);
             selectedClient = clientId;
             document.getElementById('selected-client-id').textContent = clientId;
             document.getElementById('stream-section').style.display = 'block';
@@ -659,7 +707,6 @@
                     action: 'subscribe',
                     client_id: clientId
                 }));
-                console.log('[Dashboard] Sent subscription request for:', clientId);
             }
 
             // Update UI
@@ -670,60 +717,41 @@
 
         // Handle dashboard updates
         function handleDashboardUpdate(data) {
-            console.log('[Dashboard] Received message:', data.type, 'client:', data.client_id || 'N/A', 'selectedClient:', selectedClient);
-
             if (data.type === 'clients_update') {
                 updateClientList(data.clients);
             } else if (data.type === 'frame_update') {
                 if (data.client_id === selectedClient) {
                     updateFrameDisplay(data);
-                } else {
-                    console.log('[Dashboard] frame_update ignored - client mismatch:', data.client_id, '!==', selectedClient);
                 }
             } else if (data.type === 'segmentation_update') {
                 if (data.client_id === selectedClient) {
-                    const numMasks = Object.keys(data.masks || {}).length;
-                    console.log('[Dashboard] Segmentation update received:', numMasks, 'masks for', data.client_id);
                     handleSegmentationUpdate(data);
-                } else {
-                    console.log('[Dashboard] segmentation_update ignored - client mismatch:', data.client_id, '!==', selectedClient);
                 }
-            } else {
-                console.log('[Dashboard] Unknown message type:', data.type);
             }
         }
 
         // Handle segmentation update
         function handleSegmentationUpdate(data) {
+            // Ignore if segmentation is disabled
+            if (!segmentationEnabled) {
+                return;
+            }
+
             const numMasks = Object.keys(data.masks || {}).length;
-            console.log('[Dashboard] Processing segmentation update:', numMasks, 'masks');
 
             // Update segmentation status
             const segStatus = document.getElementById('segmentation-status');
             if (numMasks > 0) {
                 segStatus.textContent = `Active (${numMasks} objects)`;
                 segStatus.style.background = 'var(--success)';
-                console.log('[Dashboard] Segmentation active with', numMasks, 'objects');
             } else {
                 segStatus.textContent = 'No objects';
                 segStatus.style.background = 'var(--warning)';
-                console.log('[Dashboard] No segmentation masks received');
             }
         }
 
         // Update frame display
         function updateFrameDisplay(data) {
-            console.log('[Dashboard] Frame update received:', {
-                has_rgb: !!data.rgb_frame,
-                rgb_size: data.rgb_frame ? data.rgb_frame.length : 0,
-                has_segmentation: !!data.segmentation_frame,
-                seg_size: data.segmentation_frame ? data.segmentation_frame.length : 0,
-                has_depth: !!data.depth_frame,
-                depth_size: data.depth_frame ? data.depth_frame.length : 0,
-                has_camera: !!data.camera,
-                resolution: data.resolution
-            });
-            
             frameCount++;
             document.getElementById('frame-count').textContent = frameCount;
 
@@ -751,8 +779,7 @@
             }
 
             // Update segmentation stream
-            if (data.segmentation_frame) {
-                console.log('[Dashboard] Segmentation frame received, size:', data.segmentation_frame.length);
+            if (data.segmentation_frame && segmentationEnabled) {
                 const segImg = document.getElementById('segmentation-stream');
                 const segPlaceholder = document.getElementById('segmentation-placeholder');
                 const segStatus = document.getElementById('segmentation-status');
@@ -761,8 +788,6 @@
                 segPlaceholder.style.display = 'none';
                 segStatus.textContent = 'Live';
                 segStatus.style.background = 'var(--success)';
-            } else {
-                console.log('[Dashboard] No segmentation_frame in frame_update');
             }
 
             // Update depth stream
