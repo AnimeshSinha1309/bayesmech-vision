@@ -97,7 +97,7 @@ class DatagrabActivity : AppCompatActivity() {
     // Initialize AR streaming
     // TODO: Replace with your server IP address
     val streamConfig = StreamConfig(
-      serverUrl = "ws://192.168.1.3:8080/ar-stream",
+      serverUrl = "ws://192.168.1.2:8080/ar-stream",
       targetFps = 20,
       sendRgbFrames = true,
       sendDepthFrames = true,  // ✅ ENABLED
