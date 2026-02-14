@@ -53,6 +53,29 @@
         <category android:name="android.intent.category.LAUNCHER"/>
       </intent-filter>
     </activity>
+
+    <!-- Recordings Activity -->
+    <activity
+        android:name=".RecordingsActivity"
+        android:label="Recordings"
+        android:theme="@style/Theme.MaterialComponents.Light.NoActionBar"
+        android:parentActivityName=".DatagrabActivity">
+      <meta-data
+          android:name="android.support.PARENT_ACTIVITY"
+          android:value=".DatagrabActivity" />
+    </activity>
+
+    <!-- FileProvider for sharing recordings -->
+    <provider
+        android:name="androidx.core.content.FileProvider"
+        android:authorities="${applicationId}.fileprovider"
+        android:exported="false"
+        android:grantUriPermissions="true">
+      <meta-data
+          android:name="android.support.FILE_PROVIDER_PATHS"
+          android:resource="@xml/file_paths" />
+    </provider>
+
     <!-- Indicates whether "Google Play Services for AR" (ARCore) is "required" or "optional". -->
     <meta-data android:name="com.google.ar.core" android:value="required" />
   </application>

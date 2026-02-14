@@ -85,6 +85,10 @@ class DatagrabActivity : AppCompatActivity() {
     lifecycle.addObserver(view)
     setContentView(view.root)
 
+    // Keep screen on during AR recording to prevent app from pausing
+    window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    Toast.makeText(this, "Screen will stay on during recording", Toast.LENGTH_SHORT).show()
+
     // Sets up an example renderer using our HelloARRenderer.
     SampleRender(view.surfaceView, renderer, assets)
 

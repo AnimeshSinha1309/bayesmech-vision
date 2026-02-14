@@ -42,6 +42,10 @@ message CameraData {
   uint32 image_width = 5;
   uint32 image_height = 6;
 
+  // FOV
+  float fov_horizontal_deg = 7;
+  float fov_vertical_deg = 8;
+
   // Camera tracking state
   TrackingState tracking_state = 9;
 }
@@ -78,6 +82,9 @@ message DepthFrame {
 }
 
 message MotionData {
+  // Device pose in world space
+  Pose device_pose = 1;
+
   // Linear velocity from ARCore pose differentiation (m/s) - more accurate
   Vector3 linear_velocity_pose = 2;
   
@@ -103,6 +110,12 @@ message ARCoreData {
 
   // Point cloud (sparse, subsampled)
   PointCloud point_cloud = 2;
+
+  // Light estimation
+  LightEstimate light_estimate = 3;
+
+  // Anchors
+  repeated Anchor anchors = 4;
 }
 
 // Supporting messages
@@ -139,6 +152,18 @@ message PointCloud {
   uint32 point_count = 2;
 }
 
+message LightEstimate {
+  Vector3 main_light_direction = 1;
+  Vector3 main_light_intensity = 2;
+  repeated float spherical_harmonics = 3 [packed=true];  // 27 floats
+}
+
+message Anchor {
+  bytes id = 1;
+  Pose pose = 2;
+  TrackingState tracking_state = 3;
+}
+
 // Enums
 
 enum TrackingState {
@@ -168,4 +193,29 @@ enum PlaneType {
   HORIZONTAL_UPWARD_FACING = 1;
   HORIZONTAL_DOWNWARD_FACING = 2;
   VERTICAL = 3;
+}
+
+// Segmentation messages
+
+message SegmentationMask {
+  uint32 object_id = 1;           // Unique object ID (1, 2, 3...)
+  bytes mask_data = 2;            // RGBA PNG mask, base64 encoded
+  float confidence = 3;           // Segmentation confidence (0.0-1.0)
+  uint32 pixel_count = 4;         // Number of pixels in mask
+}
+
+message SegmentationOutput {
+  string session_id = 1;          // Segmentation session ID
+  uint32 frame_number = 2;        // Frame number this segmentation corresponds to
+  uint64 timestamp_ms = 3;        // Timestamp when segmentation was computed
+  repeated SegmentationMask masks = 4;  // Masks for all tracked objects
+  string prompt_type = 5;         // Type of prompt: "point", "text", "auto_grid", "propagation"
+  uint32 num_objects = 6;         // Total number of objects tracked
+}
+
+message SegmentationRequest {
+  string session_id = 1;          // Session ID for this stream
+  uint32 frame_number = 2;        // Sequential frame number
+  ImageFrame image_frame = 3;     // RGB frame to segment
+  uint64 timestamp_ms = 4;        // Client timestamp
 }
