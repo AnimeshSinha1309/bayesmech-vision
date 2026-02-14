@@ -174,11 +174,6 @@ class DatagrabRenderer(val activity: DatagrabActivity) :
 
     val camera = frame.camera
 
-    // Update velocity from ARCore pose (if tracking)
-    if (camera.trackingState == TrackingState.TRACKING) {
-      sensorCollector?.updateVelocityFromPose(camera.pose.translation)
-    }
-
     // Update BackgroundRenderer state to match the depth settings.
     try {
       backgroundRenderer.setUseDepthVisualization(
@@ -227,38 +222,37 @@ class DatagrabRenderer(val activity: DatagrabActivity) :
         // Get bitmap dimensions NOW before coroutine (to avoid accessing recycled bitmap)
         val imageWidth = cameraFrameBitmap?.width ?: 1920
         val imageHeight = cameraFrameBitmap?.height ?: 1080
-        
-        camera.getViewMatrix(viewMatrix, 0)
-        camera.getProjectionMatrix(projectionMatrix, 0, Z_NEAR, Z_FAR)
-        
-        // CRITICAL: Also acquire depth image NOW on render thread!
-        // If we try to get it later in coroutine, frame will be stale -> DeadlineExceededException
+
+        // CRITICAL: Acquire depth and point cloud NOW on render thread!
+        // ARCore frames expire in ~33ms, so we MUST acquire these before async processing.
         val depthImage = try {
           frame.acquireDepthImage16Bits()
         } catch (e: Exception) {
           null  // Depth not available - this is OK
         }
-        
-        // Make copies of the matrices for the coroutine
-        val viewMatrixCopy = viewMatrix.clone()
-        val projectionMatrixCopy = projectionMatrix.clone()
 
-        // NOW launch coroutine with pre-acquired bitmap AND depth image
+        val pointCloudData = try {
+          frame.acquirePointCloud()
+        } catch (e: Exception) {
+          null  // Point cloud not available - this is OK
+        }
+
+        // NOW launch coroutine with pre-acquired bitmap, depth image, and point cloud
         streamingScope.launch {
           capture.captureAndSend(
             frame,
             session,
             camera,
-            viewMatrixCopy,
-            projectionMatrixCopy,
             cameraFrameBitmap,
-            depthImage,  // Pass pre-acquired depth image
-            imageWidth,  // Pass pre-captured dimensions
+            depthImage,
+            pointCloudData,
+            imageWidth,
             imageHeight
           )
 
           cameraFrameBitmap?.recycle()
-          depthImage?.close()  // Close depth image after use
+          depthImage?.close()
+          pointCloudData?.close()
         }
       }
     }

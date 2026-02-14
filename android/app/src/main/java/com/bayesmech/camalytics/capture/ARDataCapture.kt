@@ -3,9 +3,11 @@ package com.bayesmech.camalytics.capture
 import android.graphics.Bitmap
 import android.media.Image
 import android.util.Log
-import ar_stream.ArStream
+import com.bayesmech.vision.PerceiverDataFrame
+import com.bayesmech.vision.PerceiverFrameIdentifier
 import com.google.ar.core.Camera
 import com.google.ar.core.Frame
+import com.google.ar.core.PointCloud
 import com.bayesmech.camalytics.network.ARStreamClient
 import com.bayesmech.camalytics.network.BandwidthMonitor
 import com.bayesmech.camalytics.network.QualityLevel
@@ -18,7 +20,7 @@ import com.bayesmech.camalytics.sensors.SensorDataCollector
 class ARDataCapture(
     private val client: ARStreamClient,
     private val config: StreamConfig,
-    private val deviceId: String,  // Stable device identifier
+    private val deviceId: String,
     private val sensorCollector: SensorDataCollector,
     private val recordingManager: RecordingManager
 ) {
@@ -27,7 +29,7 @@ class ARDataCapture(
     private var lastSentTimestamp = 0L
     private val bandwidthMonitor = BandwidthMonitor()
     private var currentQuality = QualityLevel.HIGH
-    
+
     // Depth tracking
     private var depthFramesIncluded = 0
     private var depthFramesMissing = 0
@@ -36,49 +38,41 @@ class ARDataCapture(
         frame: Frame,
         session: com.google.ar.core.Session,
         camera: Camera,
-        viewMatrix: FloatArray,
-        projectionMatrix: FloatArray,
         cameraFrameBitmap: Bitmap?,
-        depthImage: Image?,  // Pre-acquired depth
-        imageWidth: Int,     // Pre-captured dimensions
+        depthImage: Image?,
+        pointCloudData: PointCloud?,
+        imageWidth: Int,
         imageHeight: Int
     ) = withContext(Dispatchers.IO) {
         try {
-            // Throttle based on target FPS
             val now = System.nanoTime()
             val minInterval = (1_000_000_000 / currentQuality.targetFps).toLong()
             if (now - lastSentTimestamp < minInterval) {
-                return@withContext  // Skip this frame
+                return@withContext
             }
 
-            // Update quality based on bandwidth
             if (config.enableAdaptiveQuality) {
                 currentQuality = bandwidthMonitor.getQualityLevel()
             }
 
-            // Build ARFrame
-            val arFrame = buildARFrame(
+            val perceiverFrame = buildPerceiverDataFrame(
                 frame,
                 session,
                 camera,
-                viewMatrix,
-                projectionMatrix,
                 cameraFrameBitmap,
-                depthImage,     // Pass pre-acquired depth
-                imageWidth,     // Pass pre-captured dimensions
+                depthImage,
+                pointCloudData,
+                imageWidth,
                 imageHeight
             )
 
-            // Write to recording if active
             if (recordingManager.isRecording()) {
-                recordingManager.writeFrame(arFrame)
+                recordingManager.writeFrame(perceiverFrame)
             }
-            
-            // Send to server (if connected)
-            client.sendFrame(arFrame)
 
-            // Record bandwidth
-            val frameSize = arFrame.serializedSize
+            client.sendFrame(perceiverFrame)
+
+            val frameSize = perceiverFrame.serializedSize
             bandwidthMonitor.recordSent(frameSize)
 
             lastSentTimestamp = now
@@ -98,33 +92,38 @@ class ARDataCapture(
         }
     }
 
-    private fun buildARFrame(
+    private fun buildPerceiverDataFrame(
         frame: Frame,
         session: com.google.ar.core.Session,
         camera: Camera,
-        viewMatrix: FloatArray,
-        projectionMatrix: FloatArray,
         cameraFrameBitmap: Bitmap?,
-        depthImage: Image?,      // Pre-acquired depth
-        imageWidth: Int,         // Pre-captured dimensions
+        depthImage: Image?,
+        pointCloudData: PointCloud?,
+        imageWidth: Int,
         imageHeight: Int
-    ): ArStream.ARFrame {
-        val builder = ArStream.ARFrame.newBuilder()
+    ): PerceiverDataFrame {
+        val builder = PerceiverDataFrame.newBuilder()
+
+        // Frame identifier
+        builder.frameIdentifier = PerceiverFrameIdentifier.newBuilder()
             .setTimestampNs(frame.timestamp)
             .setFrameNumber(frameNumber)
-            .setDeviceId(deviceId)  // Include stable device ID
+            .setDeviceId(deviceId)
+            .build()
 
-        // Always include camera data (minimal overhead)
-        // Use pre-captured dimensions to avoid accessing potentially recycled bitmap
-        builder.camera = CameraDataExtractor.extractCameraData(
-            camera,
-            viewMatrix,
-            projectionMatrix,
-            imageWidth,
-            imageHeight
-        )
+        // Camera pose
+        builder.cameraPose = CameraDataExtractor.extractCameraPose(camera)
 
-        // Conditionally include RGB frame
+        // Camera intrinsics — only on first frame
+        if (frameNumber == 0) {
+            val depthWidth = depthImage?.width ?: imageWidth
+            val depthHeight = depthImage?.height ?: imageHeight
+            builder.cameraIntrinsics = CameraDataExtractor.extractCameraIntrinsics(
+                camera, depthWidth, depthHeight
+            )
+        }
+
+        // RGB frame (conditional on quality/config)
         if (currentQuality.sendRgb && config.sendRgbFrames && cameraFrameBitmap != null) {
             builder.rgbFrame = CameraDataExtractor.extractRgbFrame(
                 cameraFrameBitmap,
@@ -134,36 +133,32 @@ class ARDataCapture(
             )
         }
 
-        // Add depth frame if enabled and available
+        // Depth frame (conditional on quality/config)
         if (currentQuality.sendDepth && config.sendDepthFrames) {
             if (depthImage != null) {
-                val depthFrame = CameraDataExtractor.processDepthImage(depthImage, currentQuality.depthScale.toInt())
+                val depthFrame = CameraDataExtractor.processDepthImage(
+                    depthImage, currentQuality.depthScale.toInt()
+                )
                 if (depthFrame != null) {
                     builder.depthFrame = depthFrame
                     depthFramesIncluded++
                 } else {
                     depthFramesMissing++
-                    if (frameNumber % 10 == 0) {
-                        Log.w(TAG, "✗ Depth processing failed for frame $frameNumber")
-                    }
                 }
             } else {
                 depthFramesMissing++
-                if (frameNumber % 10 == 0) {
-                    Log.w(TAG, "✗ Depth not acquired for frame $frameNumber (total missing: $depthFramesMissing)")
-                }
             }
         }
 
-        // Add motion/sensor data
-        val motionData = sensorCollector.getCurrentMotionData()
-        if (motionData.hasLinearAcceleration() || motionData.hasAngularVelocity() || 
-            motionData.hasGravity() || motionData.hasOrientation()) {
-            builder.motion = motionData
+        // IMU data
+        val imuData = sensorCollector.getCurrentImuData()
+        if (imuData.hasAngularVelocity() || imuData.hasLinearAcceleration() ||
+            imuData.hasGravity() || imuData.hasMagneticField()) {
+            builder.imuData = imuData
         }
 
-        // Add ARCore data (planes)
-        builder.arcore = CameraDataExtractor.extractARCoreData(session)
+        // Inferred geometry (planes + point cloud)
+        builder.inferredGeometry = CameraDataExtractor.extractInferredGeometry(session, pointCloudData)
 
         return builder.build()
     }

@@ -3,7 +3,7 @@ package com.bayesmech.camalytics.recording
 import android.content.Context
 import android.os.Environment
 import android.util.Log
-import ar_stream.ArStream
+import com.bayesmech.vision.PerceiverDataFrame
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -112,7 +112,7 @@ class RecordingManager(private val context: Context) {
      * Write a single AR frame to the recording.
      * Frame is written with a 4-byte length prefix for length-delimited format.
      */
-    fun writeFrame(frame: ArStream.ARFrame) {
+    fun writeFrame(frame: PerceiverDataFrame) {
         if (!isRecording) {
             return
         }

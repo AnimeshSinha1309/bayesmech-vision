@@ -3,7 +3,7 @@ package com.bayesmech.camalytics.network
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import ar_stream.ArStream
+import com.bayesmech.vision.PerceiverDataFrame
 import okhttp3.*
 import okio.ByteString
 import java.util.ArrayDeque
@@ -37,7 +37,7 @@ class ARStreamClient(
         .build()
     
     private var webSocket: WebSocket? = null
-    private val frameQueue = ArrayDeque<ArStream.ARFrame>(config.maxQueueSize)
+    private val frameQueue = ArrayDeque<PerceiverDataFrame>(config.maxQueueSize)
     private val isConnected = AtomicBoolean(false)
 
     // Connection status tracking
@@ -256,7 +256,7 @@ class ARStreamClient(
     
     fun getConnectionStatus(): ConnectionStatus = connectionStatus
 
-    fun sendFrame(frame: ArStream.ARFrame) {
+    fun sendFrame(frame: PerceiverDataFrame) {
         if (!isConnected.get()) {
             // Don't log this as it would spam the logs during reconnection
             framesDropped++

@@ -3,6 +3,11 @@
 **/__pycache__/
 server/data/
 
+# Generated protobuf Python files (regenerate with proto/generate_proto.sh)
+proto/__init__.py
+proto/*_pb2.py
+proto/*_pb2_grpc.py
+
 # Log and savedata files
 recordings/
 segmentation/models/

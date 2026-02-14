@@ -2,15 +2,12 @@ syntax = "proto3";
 
 package bayesmech.vision;
 
+option java_multiple_files = true;
+option java_package = "com.bayesmech.vision";
+
 import "primitives.proto";
 
 message InferredGeometry {
-  enum TrackingState {  
-    UNKNOWN = 0;
-    DISABLED = 1;
-    LIMITED = 2;
-    TRACKING = 3;
-  }
 
   message Plane {
     enum PlaneType {

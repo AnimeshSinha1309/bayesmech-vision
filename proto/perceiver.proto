@@ -2,23 +2,35 @@ syntax = "proto3";
 
 package bayesmech.vision;
 
+option java_multiple_files = true;
+option java_package = "com.bayesmech.vision";
+
 import "primitives.proto";
+import "spatial.proto";
 
-message PerceiverInitializerFrame {
-    CameraIntrinsics camera_intrinsics = 4;
-}
-
-// Main message envelope
+// Message being sent from all Perceiver devices (i.e. phones with cameras and sensors).
 message PerceiverDataFrame {
+  // Metadata detailing which device this arframe comes from,
+  // what frame number it is, and when it was captured.
   PerceiverFrameIdentifier frame_identifier = 1;
+
+  // Camera pose in world coordinates
   Pose camera_pose = 2;
+
+  // Image and Depth sensor data, identical in number of rows x cols.
   ImageFrame rgb_frame = 3;
   DepthFrame depth_frame = 4;
+
+  // IMU data, accelerometer and gyroscope.
   ImuData imu_data = 5;
+
+  // Details about the camera matrix, only populated in the first frame of communication
+  CameraIntrinsics camera_intrinsics = 6;
+
+  // ARCore-inferred spatial geometry (planes, point cloud).
+  InferredGeometry inferred_geometry = 7;
 }
 
-// Metadata detailing which device this arframe comes from,
-// what frame number it is, and when it was captured.
 message PerceiverFrameIdentifier {
   int64 timestamp_ns = 1;
   uint32 frame_number = 2;
@@ -32,6 +44,9 @@ message CameraIntrinsics {
   float cy = 4;
   float image_width = 5;
   float image_height = 6;
+  // Depth camera resolution (may differ from color camera resolution)
+  float depth_width = 7;
+  float depth_height = 8;
 }
 
 message ImageFrame {
@@ -60,7 +75,7 @@ message DepthFrame {
   }
 
   bytes data = 1;
-  bytes confidence = 2;  // Confidence map (optional, same dimensions, 0-255 per pixel) 
+  bytes confidence = 2;  // Confidence map (optional, same dimensions, 0-255 per pixel)
 
   DepthFormat format = 3;
 }
@@ -68,7 +83,6 @@ message DepthFrame {
 message ImuData {
   Vector3 angular_velocity = 1;
   Vector3 linear_acceleration = 2;  // obtained from raw acceleration by ARCore primitive
-  Vector3 gravity = 3;  // obtained from raw accelerator by ARCore primitive
+  Vector3 gravity = 3;              // obtained from raw accelerometer by ARCore primitive
   Vector3 magnetic_field = 4;
 }
-
