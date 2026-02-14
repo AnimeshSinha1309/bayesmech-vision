@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package bayesmech.vision;
+
+import "primitives.proto";
+
+message InferredGeometry {
+  enum TrackingState {  
+    UNKNOWN = 0;
+    DISABLED = 1;
+    LIMITED = 2;
+    TRACKING = 3;
+  }
+
+  message Plane {
+    enum PlaneType {
+      PLANE_TYPE_UNKNOWN = 0;
+      HORIZONTAL_UPWARD_FACING = 1;
+      HORIZONTAL_DOWNWARD_FACING = 2;
+      VERTICAL = 3;
+    }
+
+    bytes id = 1;
+    Pose center_pose = 2;
+    float extent_x = 3;
+    float extent_z = 4;
+    PlaneType type = 5;
+    repeated Vector3 polygon = 6;
+  }
+
+  message TrackedPoint {
+    Vector3 point = 1;
+    float confidence = 2;
+  }
+
+  repeated Plane planes = 1;
+  repeated TrackedPoint point_cloud = 2;
+}

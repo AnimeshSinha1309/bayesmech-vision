@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package bayesmech.vision;
+
+import "primitives.proto";
+import "perceiver.proto";
+
+message SegmentationResponse {
+
+  message SegmentationMask {
+    uint32 object_id = 1;           // Unique object ID (1, 2, 3...)
+    bytes mask_data = 2;            // RGBA PNG mask, base64 encoded
+    float confidence = 3;           // Segmentation confidence (0.0-1.0)
+    uint32 pixel_count = 4;         // Number of pixels in mask
+  }
+
+  enum SegmentationTriggerType {
+    UNKNOWN = 0;
+    POINT = 1;
+    TEXT = 2;
+    AUTO_GRID = 3;
+    PROPAGATION = 4;
+  }
+
+  PerceiverFrameIdentifier frame_identifier = 1;
+  repeated SegmentationMask masks = 2;  // Masks for all tracked objects
+  SegmentationTriggerType trigger_type = 3;
+}
+
+message SegmentationRequest {
+    PerceiverFrameIdentifier frame_identifier = 1;
+    ImageFrame image_frame = 2;     // RGB frame to segment
+}
