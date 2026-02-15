@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Fragment lays over the full-screen GLSurfaceView.
+     Top half: transparent camera viewport with 16dp padding strips on left/right/top.
+     Bottom half: opaque chat panel with floating buttons inside the text area. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <!-- ── Top half: camera viewport ─────────────────────────────────── -->
+        <!-- Background is transparent so GL shows through the center.
+             Dark strips on left/right/top create the 16dp padding effect,
+             matching the Figma's px-4 pt-4 bg-gray-800 container. -->
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:background="@android:color/transparent">
+
+            <!-- Left padding strip (blocks GL on the left edge) -->
+            <View
+                android:layout_width="16dp"
+                android:layout_height="match_parent"
+                android:layout_gravity="start"
+                android:background="@color/bg_panel"
+                android:clickable="false" />
+
+            <!-- Right padding strip -->
+            <View
+                android:layout_width="16dp"
+                android:layout_height="match_parent"
+                android:layout_gravity="end"
+                android:background="@color/bg_panel"
+                android:clickable="false" />
+
+            <!-- Top padding strip -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="16dp"
+                android:layout_gravity="top"
+                android:background="@color/bg_panel"
+                android:clickable="false" />
+
+            <!-- LIVE / REC badge — positioned inside the camera viewport (past the 16dp strips) -->
+            <TextView
+                android:id="@+id/live_badge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|start"
+                android:layout_marginTop="32dp"
+                android:layout_marginStart="32dp"
+                android:background="@drawable/badge_live"
+                android:paddingStart="10dp"
+                android:paddingEnd="10dp"
+                android:paddingTop="4dp"
+                android:paddingBottom="4dp"
+                android:text="● LIVE"
+                android:textColor="@color/text_primary"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <!-- Recording elapsed time — bottom-left inside viewport (kept away from fullscreen btn) -->
+            <TextView
+                android:id="@+id/recording_timer"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom|start"
+                android:layout_marginStart="24dp"
+                android:layout_marginBottom="12dp"
+                android:background="@drawable/badge_timer"
+                android:paddingStart="8dp"
+                android:paddingEnd="8dp"
+                android:paddingTop="3dp"
+                android:paddingBottom="3dp"
+                android:textColor="@color/text_primary"
+                android:textSize="12sp"
+                android:visibility="gone" />
+
+            <!-- Fullscreen toggle button — small translucent circle, bottom-right corner.
+                 Shows ic_fullscreen (expand) normally; ic_fullscreen_exit (collapse) when fullscreen. -->
+            <ImageButton
+                android:id="@+id/fullscreen_button"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:layout_gravity="bottom|end"
+                android:layout_marginEnd="24dp"
+                android:layout_marginBottom="12dp"
+                android:background="@drawable/fullscreen_button_bg"
+                android:src="@drawable/ic_fullscreen"
+                android:scaleType="center"
+                android:padding="6dp"
+                android:contentDescription="Toggle fullscreen" />
+        </FrameLayout>
+
+        <!-- ── Bottom half: chat panel ────────────────────────────────────── -->
+        <!-- FrameLayout with 16dp padding so the EditText sits inset (matching
+             Figma's p-4 container), and buttons float absolutely inside it.
+             ID is used by CameraFragment to hide/show on fullscreen toggle. -->
+        <FrameLayout
+            android:id="@+id/chat_panel"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:background="@color/bg_panel"
+            android:padding="16dp">
+
+            <!-- Message input — fills the padded content area.
+                 paddingTop=64dp clears the record button that hangs 40dp into this half.
+                 paddingBottom=64dp leaves room for the floating action buttons. -->
+            <EditText
+                android:id="@+id/message_input"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/input_background"
+                android:gravity="top|start"
+                android:hint="Type your message here..."
+                android:inputType="textMultiLine|textCapSentences"
+                android:padding="16dp"
+                android:paddingTop="64dp"
+                android:paddingBottom="64dp"
+                android:textColor="@color/text_primary"
+                android:textColorHint="@color/text_secondary"
+                android:textSize="15sp" />
+
+            <!-- Help button — floating bottom-left inside the padded container.
+                 Matching Figma's absolute bottom-8 left-8 (32dp from outer edge). -->
+            <ImageButton
+                android:id="@+id/help_button"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_gravity="bottom|start"
+                android:layout_marginBottom="16dp"
+                android:layout_marginStart="16dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_help"
+                android:tint="@color/text_secondary"
+                android:contentDescription="Help" />
+
+            <!-- Mic + Send buttons — floating bottom-right inside the padded container.
+                 Matching Figma's absolute bottom-8 right-8. -->
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="bottom|end"
+                android:layout_marginBottom="16dp"
+                android:layout_marginEnd="16dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageButton
+                    android:id="@+id/mic_button"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:src="@drawable/ic_mic"
+                    android:tint="@color/text_secondary"
+                    android:contentDescription="Voice recording"
+                    android:layout_marginEnd="12dp" />
+
+                <ImageButton
+                    android:id="@+id/send_button"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:background="@drawable/send_button_background"
+                    android:src="@drawable/ic_send"
+                    android:tint="@color/text_primary"
+                    android:contentDescription="Send message"
+                    android:enabled="false"
+                    android:alpha="0.4" />
+            </LinearLayout>
+        </FrameLayout>
+    </LinearLayout>
+
+    <!-- Circular record button — centered at the boundary between the two halves.
+         The top 40dp overlaps the camera area, bottom 40dp overlaps the chat area. -->
+    <View
+        android:id="@+id/record_button"
+        android:layout_width="80dp"
+        android:layout_height="80dp"
+        android:layout_gravity="center"
+        android:background="@drawable/record_button_idle"
+        android:clickable="true"
+        android:focusable="true"
+        android:contentDescription="Record"
+        android:elevation="8dp"
+        android:stateListAnimator="@animator/record_button_press" />
+
+</FrameLayout>

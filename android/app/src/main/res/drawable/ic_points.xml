@@ -1,0 +1,22 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- scatter_plot / point cloud: four corner dots + center dot, all as arc paths -->
+    <!-- dot at (7, 7) r=2 -->
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M5,7 a2,2 0 1,0 4,0 a2,2 0 1,0 -4,0z"/>
+    <!-- dot at (17, 7) r=2 -->
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M15,7 a2,2 0 1,0 4,0 a2,2 0 1,0 -4,0z"/>
+    <!-- dot at (7, 17) r=2 -->
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M5,17 a2,2 0 1,0 4,0 a2,2 0 1,0 -4,0z"/>
+    <!-- dot at (17, 17) r=2 -->
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M15,17 a2,2 0 1,0 4,0 a2,2 0 1,0 -4,0z"/>
+    <!-- dot at (12, 12) r=2 -->
+    <path android:fillColor="#FFFFFF"
+        android:pathData="M10,12 a2,2 0 1,0 4,0 a2,2 0 1,0 -4,0z"/>
+</vector>

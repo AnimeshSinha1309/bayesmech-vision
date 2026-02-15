@@ -13,6 +13,7 @@ import com.bayesmech.camalytics.network.BandwidthMonitor
 import com.bayesmech.camalytics.network.QualityLevel
 import com.bayesmech.camalytics.network.StreamConfig
 import com.bayesmech.camalytics.recording.RecordingManager
+import com.bayesmech.camalytics.coverage.CoverageTracker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.bayesmech.camalytics.sensors.SensorDataCollector
@@ -22,17 +23,16 @@ class ARDataCapture(
     private val config: StreamConfig,
     private val deviceId: String,
     private val sensorCollector: SensorDataCollector,
-    private val recordingManager: RecordingManager
+    private val recordingManager: RecordingManager,
+    private val coverageTracker: CoverageTracker,
+    private val getEnableDepth: () -> Boolean,
+    private val getEnableGeometry: () -> Boolean
 ) {
     private val TAG = "ARDataCapture"
     private var frameNumber = 0
     private var lastSentTimestamp = 0L
     private val bandwidthMonitor = BandwidthMonitor()
     private var currentQuality = QualityLevel.HIGH
-
-    // Depth tracking
-    private var depthFramesIncluded = 0
-    private var depthFramesMissing = 0
 
     suspend fun captureAndSend(
         frame: Frame,
@@ -55,15 +55,12 @@ class ARDataCapture(
                 currentQuality = bandwidthMonitor.getQualityLevel()
             }
 
+            val enableDepth = getEnableDepth()
+            val enableGeometry = getEnableGeometry()
+
             val perceiverFrame = buildPerceiverDataFrame(
-                frame,
-                session,
-                camera,
-                cameraFrameBitmap,
-                depthImage,
-                pointCloudData,
-                imageWidth,
-                imageHeight
+                frame, session, camera, cameraFrameBitmap, depthImage, pointCloudData,
+                imageWidth, imageHeight, enableDepth, enableGeometry
             )
 
             if (recordingManager.isRecording()) {
@@ -76,15 +73,28 @@ class ARDataCapture(
             bandwidthMonitor.recordSent(frameSize)
 
             lastSentTimestamp = now
+
+            // Record coverage for this frame
+            val imuData = sensorCollector.getCurrentImuData()
+            coverageTracker.recordFrame(
+                hasDepth = enableDepth && depthImage != null && perceiverFrame.hasDepthFrame(),
+                hasAccelerometer = imuData.hasLinearAcceleration(),
+                hasGyroscope = imuData.hasAngularVelocity(),
+                hasMagnetometer = imuData.hasMagneticField(),
+                hasIntrinsics = perceiverFrame.hasCameraIntrinsics(),
+                hasPose = perceiverFrame.hasCameraPose(),
+                hasGeometry = enableGeometry && perceiverFrame.hasInferredGeometry()
+                    && (perceiverFrame.inferredGeometry.planesList.isNotEmpty()
+                        || perceiverFrame.inferredGeometry.pointCloudCount > 0)
+            )
+
             frameNumber++
 
             if (frameNumber % 30 == 0) {
-                val depthTotal = depthFramesIncluded + depthFramesMissing
-                val depthPercentage = if (depthTotal > 0) (depthFramesIncluded * 100f / depthTotal) else 0f
                 Log.i(TAG, "Sent frame $frameNumber, quality: $currentQuality, " +
-                        "bandwidth: ${"%.2f".format(bandwidthMonitor.getCurrentBandwidthMbps())} Mbps, " +
-                        "depth: $depthFramesIncluded/$depthTotal (${depthPercentage.toInt()}%)")
+                        "bandwidth: ${"%.2f".format(bandwidthMonitor.getCurrentBandwidthMbps())} Mbps")
                 Log.i(TAG, "  Sensors: ${sensorCollector.getSensorSummary()}")
+                Log.i(TAG, "  Coverage: ${coverageTracker.getStats()}")
             }
 
         } catch (e: Exception) {
@@ -100,21 +110,20 @@ class ARDataCapture(
         depthImage: Image?,
         pointCloudData: PointCloud?,
         imageWidth: Int,
-        imageHeight: Int
+        imageHeight: Int,
+        enableDepth: Boolean,
+        enableGeometry: Boolean
     ): PerceiverDataFrame {
         val builder = PerceiverDataFrame.newBuilder()
 
-        // Frame identifier
         builder.frameIdentifier = PerceiverFrameIdentifier.newBuilder()
             .setTimestampNs(frame.timestamp)
             .setFrameNumber(frameNumber)
             .setDeviceId(deviceId)
             .build()
 
-        // Camera pose
         builder.cameraPose = CameraDataExtractor.extractCameraPose(camera)
 
-        // Camera intrinsics — only on first frame
         if (frameNumber == 0) {
             val depthWidth = depthImage?.width ?: imageWidth
             val depthHeight = depthImage?.height ?: imageHeight
@@ -123,54 +132,34 @@ class ARDataCapture(
             )
         }
 
-        // RGB frame (conditional on quality/config)
         if (currentQuality.sendRgb && config.sendRgbFrames && cameraFrameBitmap != null) {
             builder.rgbFrame = CameraDataExtractor.extractRgbFrame(
-                cameraFrameBitmap,
-                currentQuality.jpegQuality,
-                currentQuality.rgbWidth,
-                currentQuality.rgbHeight
+                cameraFrameBitmap, currentQuality.jpegQuality,
+                currentQuality.rgbWidth, currentQuality.rgbHeight
             )
         }
 
-        // Depth frame (conditional on quality/config)
-        if (currentQuality.sendDepth && config.sendDepthFrames) {
-            if (depthImage != null) {
-                val depthFrame = CameraDataExtractor.processDepthImage(
-                    depthImage, currentQuality.depthScale.toInt()
-                )
-                if (depthFrame != null) {
-                    builder.depthFrame = depthFrame
-                    depthFramesIncluded++
-                } else {
-                    depthFramesMissing++
-                }
-            } else {
-                depthFramesMissing++
+        if (enableDepth && currentQuality.sendDepth && depthImage != null) {
+            val depthFrame = CameraDataExtractor.processDepthImage(
+                depthImage, currentQuality.depthScale.toInt()
+            )
+            if (depthFrame != null) {
+                builder.depthFrame = depthFrame
             }
         }
 
-        // IMU data
         val imuData = sensorCollector.getCurrentImuData()
         if (imuData.hasAngularVelocity() || imuData.hasLinearAcceleration() ||
             imuData.hasGravity() || imuData.hasMagneticField()) {
             builder.imuData = imuData
         }
 
-        // Inferred geometry (planes + point cloud)
-        builder.inferredGeometry = CameraDataExtractor.extractInferredGeometry(session, pointCloudData)
+        if (enableGeometry) {
+            builder.inferredGeometry = CameraDataExtractor.extractInferredGeometry(session, pointCloudData)
+        }
 
         return builder.build()
     }
 
-    fun getCurrentQuality(): QualityLevel = currentQuality
-
-    fun getStats(): Map<String, Any> {
-        return mapOf(
-            "frame_number" to frameNumber,
-            "current_quality" to currentQuality.name,
-            "bandwidth_mbps" to bandwidthMonitor.getCurrentBandwidthMbps(),
-            "sensor_summary" to sensorCollector.getSensorSummary()
-        )
-    }
+    fun getCoverageStats() = coverageTracker.getStats()
 }

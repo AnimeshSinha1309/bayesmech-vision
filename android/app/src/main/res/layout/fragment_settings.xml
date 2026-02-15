@@ -1,0 +1,585 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg_panel"
+    android:orientation="vertical">
+
+    <!-- Settings header: back button + page title -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:background="@color/bg_header"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="8dp"
+        android:paddingEnd="16dp">
+
+        <ImageButton
+            android:id="@+id/back_button"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_chevron_left"
+            android:tint="@color/text_secondary"
+            android:contentDescription="Back"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/page_title"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:text="Settings"
+            android:textColor="@color/text_primary"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <!-- ═══ MAIN SETTINGS LIST PAGE ═══ -->
+    <ScrollView
+        android:id="@+id/page_main"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="visible">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <!-- User Profile card -->
+            <LinearLayout
+                android:id="@+id/card_user_profile"
+                style="@style/SettingsCard"
+                android:background="@drawable/card_background">
+
+                <ImageView style="@style/SettingsCardIcon"
+                    android:src="@drawable/ic_person" />
+                <LinearLayout style="@style/SettingsCardText">
+                    <TextView style="@style/SettingsCardTitle" android:text="User Profile" />
+                    <TextView style="@style/SettingsCardSubtitle"
+                        android:text="Account services and preferences" />
+                </LinearLayout>
+                <ImageView style="@style/SettingsCardChevron" />
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="16dp" />
+
+            <!-- Group: Server / Files / Sensor -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/card_background"
+                android:orientation="vertical">
+
+                <LinearLayout
+                    android:id="@+id/card_server_connection"
+                    style="@style/SettingsCard">
+                    <ImageView style="@style/SettingsCardIcon"
+                        android:src="@drawable/ic_server"
+                        android:tint="#60A5FA" />
+                    <LinearLayout style="@style/SettingsCardText">
+                        <TextView style="@style/SettingsCardTitle"
+                            android:text="Server Connection" />
+                        <TextView style="@style/SettingsCardSubtitle"
+                            android:text="Server URL and Connection Status" />
+                    </LinearLayout>
+                    <ImageView style="@style/SettingsCardChevron" />
+                </LinearLayout>
+
+                <View android:layout_width="match_parent" android:layout_height="1dp"
+                    android:background="@color/divider" />
+
+                <LinearLayout
+                    android:id="@+id/card_saved_files"
+                    style="@style/SettingsCard">
+                    <ImageView style="@style/SettingsCardIcon"
+                        android:src="@drawable/ic_storage"
+                        android:tint="#C084FC" />
+                    <LinearLayout style="@style/SettingsCardText">
+                        <TextView style="@style/SettingsCardTitle"
+                            android:text="Saved Files" />
+                        <TextView style="@style/SettingsCardSubtitle"
+                            android:text="Locally stored data files" />
+                    </LinearLayout>
+                    <ImageView style="@style/SettingsCardChevron" />
+                </LinearLayout>
+
+                <View android:layout_width="match_parent" android:layout_height="1dp"
+                    android:background="@color/divider" />
+
+                <LinearLayout
+                    android:id="@+id/card_sensor_properties"
+                    style="@style/SettingsCard">
+                    <ImageView style="@style/SettingsCardIcon"
+                        android:src="@drawable/ic_nav_camera"
+                        android:tint="#4ADE80" />
+                    <LinearLayout style="@style/SettingsCardText">
+                        <TextView style="@style/SettingsCardTitle"
+                            android:text="Sensor Properties" />
+                        <TextView style="@style/SettingsCardSubtitle"
+                            android:text="Frame rates, depth settings, and data coverage" />
+                    </LinearLayout>
+                    <ImageView style="@style/SettingsCardChevron" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="16dp" />
+
+            <!-- About card -->
+            <LinearLayout
+                android:id="@+id/card_about"
+                style="@style/SettingsCard"
+                android:background="@drawable/card_background">
+                <ImageView style="@style/SettingsCardIcon"
+                    android:src="@drawable/ic_info"
+                    android:tint="@color/text_secondary" />
+                <LinearLayout style="@style/SettingsCardText">
+                    <TextView style="@style/SettingsCardTitle"
+                        android:text="About this app" />
+                    <TextView style="@style/SettingsCardSubtitle"
+                        android:text="App version and developer details" />
+                </LinearLayout>
+                <ImageView style="@style/SettingsCardChevron" />
+            </LinearLayout>
+
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- ═══ SERVER CONNECTION PAGE ═══ -->
+    <ScrollView
+        android:id="@+id/page_server_connection"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="20dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="6dp"
+                android:layout_marginStart="4dp"
+                android:text="Server IP Address"
+                android:textColor="@color/text_secondary"
+                android:textSize="13sp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/card_background"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:padding="16dp">
+
+                <ImageView
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:src="@drawable/ic_server"
+                    android:tint="@color/text_secondary"
+                    android:contentDescription="Server"
+                    android:layout_marginEnd="12dp" />
+
+                <EditText
+                    android:id="@+id/server_url_input"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:background="@android:color/transparent"
+                    android:hint="ws://192.168.1.1:8080/ar-stream"
+                    android:inputType="textUri"
+                    android:maxLines="1"
+                    android:textColor="@color/text_primary"
+                    android:textColorHint="@color/text_secondary"
+                    android:textSize="14sp" />
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="20dp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/card_background"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:padding="16dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/connection_status_title"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Connecting…"
+                        android:textColor="@color/text_primary"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/connection_status_subtitle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="Initializing"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="13sp" />
+                </LinearLayout>
+
+                <View
+                    android:id="@+id/connection_status_dot"
+                    android:layout_width="12dp"
+                    android:layout_height="12dp"
+                    android:background="@drawable/dot_reconnecting" />
+            </LinearLayout>
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- ═══ SENSOR PROPERTIES PAGE ═══ -->
+    <ScrollView
+        android:id="@+id/page_sensor_properties"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="20dp">
+
+            <!-- Data Selection -->
+            <TextView style="@style/SectionHeader" android:text="Data Selection" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/card_background"
+                android:orientation="vertical">
+
+                <!-- Enable Depth Data -->
+                <LinearLayout style="@style/SensorRow">
+                    <ImageView style="@style/SettingsCardIcon"
+                        android:src="@drawable/ic_depth"
+                        android:tint="#22D3EE" />
+                    <LinearLayout style="@style/SettingsCardText">
+                        <TextView style="@style/SettingsCardTitle"
+                            android:text="Enable Depth Data" />
+                        <TextView style="@style/SettingsCardSubtitle"
+                            android:text="Stream depth data from sensor" />
+                    </LinearLayout>
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switch_depth_data"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textOn=""
+                        android:textOff="" />
+                </LinearLayout>
+
+                <View android:layout_width="match_parent" android:layout_height="1dp"
+                    android:background="@color/divider" />
+
+                <!-- Enable Inferred Geometry -->
+                <LinearLayout style="@style/SensorRow">
+                    <ImageView style="@style/SettingsCardIcon"
+                        android:src="@drawable/ic_shapes"
+                        android:tint="#F472B6" />
+                    <LinearLayout style="@style/SettingsCardText">
+                        <TextView style="@style/SettingsCardTitle"
+                            android:text="Enable Inferred Geometry" />
+                        <TextView style="@style/SettingsCardSubtitle"
+                            android:text="Stream geometry inferred from depth" />
+                    </LinearLayout>
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switch_inferred_geometry"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textOn=""
+                        android:textOff="" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="20dp" />
+
+            <!-- Visualization -->
+            <TextView style="@style/SectionHeader"
+                android:text="In App Sensor Visualization" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/card_background"
+                android:orientation="vertical">
+
+                <LinearLayout style="@style/SensorRow">
+                    <ImageView style="@style/SettingsCardIcon"
+                        android:src="@drawable/ic_depth"
+                        android:tint="#60A5FA" />
+                    <LinearLayout style="@style/SettingsCardText">
+                        <TextView style="@style/SettingsCardTitle"
+                            android:text="Visualize Depth Map" />
+                        <TextView style="@style/SettingsCardSubtitle"
+                            android:text="Show inferred depth camera data" />
+                    </LinearLayout>
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switch_visualize_depth"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textOn=""
+                        android:textOff="" />
+                </LinearLayout>
+
+                <View android:layout_width="match_parent" android:layout_height="1dp"
+                    android:background="@color/divider" />
+
+                <LinearLayout style="@style/SensorRow">
+                    <ImageView style="@style/SettingsCardIcon"
+                        android:src="@drawable/ic_points"
+                        android:tint="#A78BFA" />
+                    <LinearLayout style="@style/SettingsCardText">
+                        <TextView style="@style/SettingsCardTitle"
+                            android:text="Visualize Point Cloud" />
+                        <TextView style="@style/SettingsCardSubtitle"
+                            android:text="Visualize stable 3D points detected" />
+                    </LinearLayout>
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switch_visualize_points"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textOn=""
+                        android:textOff="" />
+                </LinearLayout>
+
+                <View android:layout_width="match_parent" android:layout_height="1dp"
+                    android:background="@color/divider" />
+
+                <LinearLayout style="@style/SensorRow">
+                    <ImageView style="@style/SettingsCardIcon"
+                        android:src="@drawable/ic_layers"
+                        android:tint="#4ADE80" />
+                    <LinearLayout style="@style/SettingsCardText">
+                        <TextView style="@style/SettingsCardTitle"
+                            android:text="Visualize Planes" />
+                        <TextView style="@style/SettingsCardSubtitle"
+                            android:text="ARCore surface estimate visualization" />
+                    </LinearLayout>
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/switch_visualize_planes"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textOn=""
+                        android:textOff="" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="20dp" />
+
+            <!-- Data Coverage -->
+            <TextView style="@style/SectionHeader" android:text="Data Coverage" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/card_background"
+                android:orientation="vertical">
+
+                <LinearLayout style="@style/CoverageRow">
+                    <ImageView style="@style/SettingsCardIcon"
+                        android:src="@drawable/ic_depth"
+                        android:tint="#22D3EE" />
+                    <LinearLayout style="@style/SettingsCardText">
+                        <TextView style="@style/SettingsCardTitle"
+                            android:text="Depth Frame Coverage" />
+                        <TextView style="@style/SettingsCardSubtitle"
+                            android:text="Coverage in last 10s" />
+                    </LinearLayout>
+                    <TextView android:id="@+id/coverage_depth"
+                        style="@style/CoverageValue" android:text="—" />
+                </LinearLayout>
+
+                <View android:layout_width="match_parent" android:layout_height="1dp"
+                    android:background="@color/divider" />
+
+                <LinearLayout style="@style/CoverageRow">
+                    <ImageView style="@style/SettingsCardIcon"
+                        android:src="@drawable/ic_accel"
+                        android:tint="#FB923C" />
+                    <LinearLayout style="@style/SettingsCardText">
+                        <TextView style="@style/SettingsCardTitle"
+                            android:text="Accelerometer Coverage" />
+                        <TextView style="@style/SettingsCardSubtitle"
+                            android:text="Coverage in last 10s" />
+                    </LinearLayout>
+                    <TextView android:id="@+id/coverage_accel"
+                        style="@style/CoverageValue" android:text="—" />
+                </LinearLayout>
+
+                <View android:layout_width="match_parent" android:layout_height="1dp"
+                    android:background="@color/divider" />
+
+                <LinearLayout style="@style/CoverageRow">
+                    <ImageView style="@style/SettingsCardIcon"
+                        android:src="@drawable/ic_gyro"
+                        android:tint="#FACC15" />
+                    <LinearLayout style="@style/SettingsCardText">
+                        <TextView style="@style/SettingsCardTitle"
+                            android:text="Gyroscope Coverage" />
+                        <TextView style="@style/SettingsCardSubtitle"
+                            android:text="Coverage in last 10s" />
+                    </LinearLayout>
+                    <TextView android:id="@+id/coverage_gyro"
+                        style="@style/CoverageValue" android:text="—" />
+                </LinearLayout>
+
+                <View android:layout_width="match_parent" android:layout_height="1dp"
+                    android:background="@color/divider" />
+
+                <LinearLayout style="@style/CoverageRow">
+                    <ImageView style="@style/SettingsCardIcon"
+                        android:src="@drawable/ic_mag"
+                        android:tint="#F87171" />
+                    <LinearLayout style="@style/SettingsCardText">
+                        <TextView style="@style/SettingsCardTitle"
+                            android:text="Magnetometer Coverage" />
+                        <TextView style="@style/SettingsCardSubtitle"
+                            android:text="Coverage in last 10s" />
+                    </LinearLayout>
+                    <TextView android:id="@+id/coverage_mag"
+                        style="@style/CoverageValue" android:text="—" />
+                </LinearLayout>
+
+                <View android:layout_width="match_parent" android:layout_height="1dp"
+                    android:background="@color/divider" />
+
+                <LinearLayout style="@style/CoverageRow">
+                    <ImageView style="@style/SettingsCardIcon"
+                        android:src="@drawable/ic_nav_camera"
+                        android:tint="#818CF8" />
+                    <LinearLayout style="@style/SettingsCardText">
+                        <TextView style="@style/SettingsCardTitle"
+                            android:text="Camera Intrinsics in Session" />
+                        <TextView style="@style/SettingsCardSubtitle"
+                            android:text="Number of messages in recording session" />
+                    </LinearLayout>
+                    <TextView android:id="@+id/coverage_intrinsics"
+                        style="@style/CoverageValue" android:text="—" />
+                </LinearLayout>
+
+                <View android:layout_width="match_parent" android:layout_height="1dp"
+                    android:background="@color/divider" />
+
+                <LinearLayout style="@style/CoverageRow">
+                    <ImageView style="@style/SettingsCardIcon"
+                        android:src="@drawable/ic_pose"
+                        android:tint="#2DD4BF" />
+                    <LinearLayout style="@style/SettingsCardText">
+                        <TextView style="@style/SettingsCardTitle"
+                            android:text="Pose Coverage" />
+                        <TextView style="@style/SettingsCardSubtitle"
+                            android:text="Coverage in last 10s" />
+                    </LinearLayout>
+                    <TextView android:id="@+id/coverage_pose"
+                        style="@style/CoverageValue" android:text="—" />
+                </LinearLayout>
+
+                <View android:layout_width="match_parent" android:layout_height="1dp"
+                    android:background="@color/divider" />
+
+                <LinearLayout style="@style/CoverageRow">
+                    <ImageView style="@style/SettingsCardIcon"
+                        android:src="@drawable/ic_shapes"
+                        android:tint="#F472B6" />
+                    <LinearLayout style="@style/SettingsCardText">
+                        <TextView style="@style/SettingsCardTitle"
+                            android:text="Inferred Geometry Coverage" />
+                        <TextView style="@style/SettingsCardSubtitle"
+                            android:text="Coverage in last 10s" />
+                    </LinearLayout>
+                    <TextView android:id="@+id/coverage_geometry"
+                        style="@style/CoverageValue" android:text="—" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <View android:layout_width="match_parent" android:layout_height="20dp" />
+
+            <!-- Frame Rate Tracker -->
+            <TextView style="@style/SectionHeader" android:text="Frame Rate Tracker" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/card_background"
+                android:orientation="vertical">
+
+                <LinearLayout style="@style/CoverageRow">
+                    <ImageView style="@style/SettingsCardIcon"
+                        android:src="@drawable/ic_activity"
+                        android:tint="#34D399" />
+                    <LinearLayout style="@style/SettingsCardText">
+                        <TextView style="@style/SettingsCardTitle"
+                            android:text="Average Frame Rate" />
+                        <TextView style="@style/SettingsCardSubtitle"
+                            android:text="Averaged over last 10s" />
+                    </LinearLayout>
+                    <TextView android:id="@+id/coverage_fps"
+                        style="@style/CoverageValue" android:text="—" />
+                </LinearLayout>
+            </LinearLayout>
+
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- ═══ SAVED FILES PAGE ═══ -->
+    <FrameLayout
+        android:id="@+id/page_saved_files"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/saved_files_empty"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:text="No recordings yet"
+            android:textColor="@color/text_secondary"
+            android:textSize="16sp"
+            android:visibility="gone" />
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/saved_files_list"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:padding="16dp"
+            android:clipToPadding="false"
+            android:visibility="gone" />
+    </FrameLayout>
+
+    <!-- ═══ GENERIC PLACEHOLDER PAGE (Profile / About) ═══ -->
+    <LinearLayout
+        android:id="@+id/page_generic"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="32dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/generic_page_message"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:textColor="@color/text_secondary"
+            android:textSize="15sp" />
+    </LinearLayout>
+
+</LinearLayout>

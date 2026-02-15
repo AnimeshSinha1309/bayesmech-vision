@@ -167,9 +167,8 @@ class ARStreamClient(
                         else -> "${t.javaClass.simpleName}: ${t.message}"
                     }
                     
-                    Log.e(TAG, "✗ WebSocket connection failed: $errorMsg", t)
-                    Log.e(TAG, "  Server URL: $serverUrl")
-                    Log.e(TAG, "  Response: ${response?.code} ${response?.message}")
+                    // Log concisely — a downed server is expected; full stack trace is noise
+                    Log.w(TAG, "✗ WebSocket connection failed: $errorMsg | url=$serverUrl")
                     
                     updateStatus(ConnectionStatus(
                         isConnected = false,

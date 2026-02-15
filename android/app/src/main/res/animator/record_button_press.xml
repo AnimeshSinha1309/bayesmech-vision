@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- State-list animator: scale down on press, bounce back on release -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_pressed="true">
+        <set>
+            <objectAnimator
+                android:propertyName="scaleX"
+                android:valueTo="0.88"
+                android:duration="80"
+                android:interpolator="@android:interpolator/decelerate_quad" />
+            <objectAnimator
+                android:propertyName="scaleY"
+                android:valueTo="0.88"
+                android:duration="80"
+                android:interpolator="@android:interpolator/decelerate_quad" />
+        </set>
+    </item>
+    <item>
+        <set>
+            <objectAnimator
+                android:propertyName="scaleX"
+                android:valueTo="1.0"
+                android:duration="200"
+                android:interpolator="@android:interpolator/overshoot" />
+            <objectAnimator
+                android:propertyName="scaleY"
+                android:valueTo="1.0"
+                android:duration="200"
+                android:interpolator="@android:interpolator/overshoot" />
+        </set>
+    </item>
+</selector>
