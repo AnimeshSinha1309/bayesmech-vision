@@ -1,614 +1,403 @@
 """
-AR Stream Server - WebSocket server for streaming AR data from Android devices
+BayesMech Vision Server
 
-Endpoints:
-  GET  /api/clients             - List connected clients
-  GET  /api/health              - Health check
-  GET  /api/recordings          - List recordings
-  POST /api/segmentation/*      - Enable/disable segmentation
-  POST /api/upload_recording    - Upload a recording
-  POST /api/playback/*          - Start/stop playback
-  WS   /ar-stream               - AR data stream (from Android app)
-  WS   /ws/dashboard            - Dashboard real-time updates
-  WS   /ws/segmentation         - Segmentation prompts/results
-  /    (static)                 - React dashboard (served from dashboard/dist/)
+Endpoints
+---------
+WS  /ar-stream          Android device → push PerceiverDataFrame protos
+WS  /ws/dashboard       Dashboard ← subscribe to stream, receive JSON frame updates
+GET /api/health         Server status
+GET /api/stream         VisionStream stats
+GET /api/recordings     List saved .pb recordings
+POST /api/playback/start   Load a recording into the stream
+POST /api/playback/stop    Stop active replay
+GET /api/playback/status   Replay status
+POST /api/upload_recording  Upload .pb file and start replay
+/   (static)            React dashboard (dashboard/dist/)
 """
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, HTTPException
-from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.cors import CORSMiddleware
 import asyncio
+import base64
+import io
+import json
 import logging
+import sys
 import yaml
 from pathlib import Path
+from typing import Any
+
 import numpy as np
+from fastapi import FastAPI, UploadFile, File, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps
-import io
-import base64
-import json
-from typing import Set
 
-from buffer.client_manager import ClientManager
-from playback import PlaybackManager
-from segmentation_client import segmentation_client
+_root = Path(__file__).parent.parent
+sys.path.append(str(_root))
+sys.path.append(str(_root / "proto"))  # pb2 files import each other by bare name
+from proto import perceiver_pb2
 
-# Setup logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+from vision_stream import VisionStream
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(name)-20s  %(levelname)s  %(message)s",
+)
 logger = logging.getLogger(__name__)
 
-# Load config
-config_path = Path(__file__).parent / 'config.yaml'
-with open(config_path) as f:
-    config = yaml.safe_load(f)
+# ── Config ────────────────────────────────────────────────────────────────────
 
-app = FastAPI(title="BayesMech CamAlytics Server", version="1.0.0")
+_config_path = Path(__file__).parent / "config.yaml"
+with open(_config_path) as _f:
+    config = yaml.safe_load(_f)
 
+RECORDINGS_DIR = Path(__file__).parent / "recordings"
+RECORDINGS_DIR.mkdir(exist_ok=True)
+
+# ── Application ───────────────────────────────────────────────────────────────
+
+app = FastAPI(title="BayesMech Vision Server", version="2.0.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Import protobuf from the root proto/ directory
-try:
-    import sys
-    sys.path.append(str(Path(__file__).parent.parent))
-    from proto import ar_stream_pb2
-except ImportError as e:
-    logger.error(f"Failed to import protobuf module: {e}")
-    ar_stream_pb2 = None
+# ── Global stream ─────────────────────────────────────────────────────────────
+# Single VisionStream instance shared by all handlers.
+# Downstream services (segmentation, SLAM) import and read from this object.
 
-# --- State ---
-client_manager = ClientManager()
-dashboard_connections: Set[WebSocket] = set()
-latest_frames: dict = {}
-latest_segmentation_masks: dict = {}  # client_id -> encoded masks
-segmentation_enabled: dict = {}       # client_id -> bool
-last_segmentation_time: dict = {}     # client_id -> timestamp
-SEGMENTATION_FRAME_INTERVAL = 1.0
-playback_manager = PlaybackManager(recordings_dir="recordings")
+stream = VisionStream(max_frames=300)
+
+# Active dashboard WebSocket connections
+_dashboard_connections: set[WebSocket] = set()
 
 
-# ============================================================
-#  Lifecycle
-# ============================================================
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Frame → JSON encoding  (dashboard wire format)
+# ═══════════════════════════════════════════════════════════════════════════════
 
-@app.on_event("startup")
-async def startup():
-    logger.info("Starting BayesMech CamAlytics Server...")
-    await segmentation_client.connect()
-    segmentation_client.set_result_callback(handle_segmentation_result)
-
-@app.on_event("shutdown")
-async def shutdown():
-    logger.info("Shutting down server...")
-    await segmentation_client.close()
+ImageFormat = perceiver_pb2.ImageFrame.ImageFormat
+DepthFormat = perceiver_pb2.DepthFrame.DepthFormat
 
 
-# ============================================================
-#  Frame extraction helpers
-# ============================================================
+def _b64(data: bytes) -> str:
+    return base64.b64encode(data).decode()
 
-VEC3_FIELDS = [
-    'linear_acceleration', 'linear_velocity_pose', 'linear_velocity_accel',
-    'angular_velocity', 'gravity',
-]
 
-def _extract_vec3(msg) -> dict:
-    return {'x': msg.x, 'y': msg.y, 'z': msg.z}
+def _encode_rgb(frame: perceiver_pb2.PerceiverDataFrame) -> str | None:
+    """Return base64 JPEG string from an RGB ImageFrame."""
+    rgb = frame.rgb_frame
+    if not rgb.data:
+        return None
+    if rgb.format == ImageFormat.JPEG:
+        return _b64(rgb.data)
+    if rgb.format in (ImageFormat.BITMAP_RGB, ImageFormat.BITMAP_RGBA):
+        intr = stream.cached_intrinsics
+        if not intr:
+            return None
+        channels = 4 if rgb.format == ImageFormat.BITMAP_RGBA else 3
+        try:
+            arr = np.frombuffer(rgb.data, dtype=np.uint8).reshape(
+                int(intr.image_height), int(intr.image_width), channels
+            )
+            buf = io.BytesIO()
+            Image.fromarray(arr[:, :, :3]).save(buf, format="JPEG", quality=80)
+            return _b64(buf.getvalue())
+        except Exception as exc:
+            logger.debug(f"RGB encode failed: {exc}")
+    return None
 
-def extract_frame_data(ar_frame, client_id: str) -> dict:
-    """Extract data from protobuf ARFrame into a plain dict."""
-    data = {
-        'client_id': client_id,
-        'timestamp_ns': ar_frame.timestamp_ns,
-        'frame_number': ar_frame.frame_number,
+
+def _encode_depth(frame: perceiver_pb2.PerceiverDataFrame) -> str | None:
+    """Return base64 colorized depth PNG."""
+    depth = frame.depth_frame
+    if not depth.data:
+        return None
+    intr = stream.cached_intrinsics
+    if not intr or not intr.depth_width or not intr.depth_height:
+        return None
+    try:
+        w, h = int(intr.depth_width), int(intr.depth_height)
+        if depth.format == DepthFormat.UINT16_MILLIMETERS:
+            arr = np.frombuffer(depth.data, dtype=np.uint16).reshape(h, w)
+            arr_f = arr.astype(np.float32)
+        elif depth.format == DepthFormat.FLOAT32_METERS:
+            arr_f = np.frombuffer(depth.data, dtype=np.float32).reshape(h, w) * 1000
+        else:
+            return None
+
+        finite = arr_f[arr_f > 0]
+        if finite.size == 0:
+            return None
+        lo, hi = float(finite.min()), float(finite.max())
+        norm = ((arr_f - lo) / max(hi - lo, 1e-6) * 255).clip(0, 255).astype(np.uint8)
+        img = ImageOps.colorize(Image.fromarray(norm).convert("L"), "black", "white", "blue")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return _b64(buf.getvalue())
+    except Exception as exc:
+        logger.debug(f"Depth encode failed: {exc}")
+        return None
+
+
+def _vec3_dict(v) -> dict[str, float]:
+    return {"x": v.x, "y": v.y, "z": v.z}
+
+
+def frame_to_dashboard_msg(frame: perceiver_pb2.PerceiverDataFrame) -> dict[str, Any]:
+    """Encode a PerceiverDataFrame into the dashboard JSON wire format."""
+    ident = frame.frame_identifier
+    msg: dict[str, Any] = {
+        "type": "frame_update",
+        "source": stream.source,
+        "device_id": ident.device_id,
+        "timestamp_ns": ident.timestamp_ns,
+        "frame_number": ident.frame_number,
     }
 
-    # Camera data
-    if ar_frame.HasField('camera'):
-        cam = ar_frame.camera
-        camera = {
-            'image_width': cam.image_width,
-            'image_height': cam.image_height,
-            'tracking_state': cam.tracking_state,
+    rgb_b64 = _encode_rgb(frame)
+    if rgb_b64:
+        msg["rgb_frame"] = rgb_b64
+
+    depth_b64 = _encode_depth(frame)
+    if depth_b64:
+        msg["depth_frame"] = depth_b64
+
+    # Camera pose
+    pose = frame.camera_pose
+    if frame.HasField("camera_pose"):
+        msg["camera_pose"] = {
+            "position": _vec3_dict(pose.position),
+            "rotation": {"x": pose.rotation.x, "y": pose.rotation.y,
+                         "z": pose.rotation.z, "w": pose.rotation.w},
         }
-        for name, shape in [('intrinsic_matrix', (3, 3)), ('projection_matrix', (4, 4)),
-                            ('view_matrix', (4, 4)), ('pose_matrix', (4, 4))]:
-            raw = getattr(cam, name)
-            if raw:
-                camera[name] = np.array(raw).reshape(shape)
-        data['camera'] = camera
 
-    # RGB frame
-    if ar_frame.HasField('rgb_frame'):
-        rgb = ar_frame.rgb_frame
-        try:
-            if rgb.format == ar_stream_pb2.JPEG:
-                data['rgb_image'] = np.array(Image.open(io.BytesIO(rgb.data)))
-            elif rgb.format == ar_stream_pb2.RGB_888:
-                data['rgb_image'] = np.frombuffer(rgb.data, dtype=np.uint8).reshape(rgb.height, rgb.width, 3)
-            else:
-                logger.error(f"Unknown RGB format: {rgb.format}")
-        except Exception as e:
-            logger.error(f"Failed to decode RGB frame: {e}")
+    # Camera intrinsics (cached, not per-frame)
+    intr = stream.cached_intrinsics
+    if intr:
+        msg["camera_intrinsics"] = {
+            "fx": intr.fx, "fy": intr.fy, "cx": intr.cx, "cy": intr.cy,
+            "image_width": intr.image_width, "image_height": intr.image_height,
+            "depth_width": intr.depth_width, "depth_height": intr.depth_height,
+        }
 
-    # Depth frame
-    if ar_frame.HasField('depth_frame'):
-        depth = ar_frame.depth_frame
-        try:
-            data['depth_map'] = np.frombuffer(depth.data, dtype=np.uint16).reshape(depth.height, depth.width)
-            data['depth_range'] = (depth.min_depth_m, depth.max_depth_m)
-            if depth.confidence:
-                data['depth_confidence'] = np.frombuffer(depth.confidence, dtype=np.uint8).reshape(depth.height, depth.width)
-        except Exception as e:
-            logger.error(f"Failed to decode depth frame: {e}")
+    # IMU
+    imu = frame.imu_data
+    if frame.HasField("imu_data"):
+        msg["imu"] = {
+            "angular_velocity": _vec3_dict(imu.angular_velocity),
+            "linear_acceleration": _vec3_dict(imu.linear_acceleration),
+            "gravity": _vec3_dict(imu.gravity),
+            "magnetic_field": _vec3_dict(imu.magnetic_field),
+        }
 
-    # Motion / sensor data
-    if ar_frame.HasField('motion'):
-        motion = ar_frame.motion
-        motion_data = {}
-        for field in VEC3_FIELDS:
-            if motion.HasField(field):
-                motion_data[field] = _extract_vec3(getattr(motion, field))
-        if motion.HasField('orientation'):
-            o = motion.orientation
-            motion_data['orientation'] = {'x': o.x, 'y': o.y, 'z': o.z, 'w': o.w}
-        if motion_data:
-            data['motion'] = motion_data
+    # Inferred geometry summary
+    geom = frame.inferred_geometry
+    if frame.HasField("inferred_geometry"):
+        msg["inferred_geometry"] = {
+            "plane_count": len(geom.planes),
+            "point_cloud_count": len(geom.point_cloud),
+        }
 
-    return data
+    return msg
 
 
-# ============================================================
-#  Image encoding helpers
-# ============================================================
-
-def encode_image_to_base64(image_array: np.ndarray, format='JPEG') -> str:
-    buf = io.BytesIO()
-    Image.fromarray(image_array).save(buf, format=format)
-    return base64.b64encode(buf.getvalue()).decode('utf-8')
-
-def encode_depth_to_base64(depth_array: np.ndarray) -> str:
-    depth_norm = ((depth_array - depth_array.min()) /
-                  (depth_array.max() - depth_array.min()) * 255).astype(np.uint8)
-    img = ImageOps.colorize(Image.fromarray(depth_norm).convert('L'), 'black', 'white', 'blue')
-    buf = io.BytesIO()
-    img.save(buf, format='PNG')
-    return base64.b64encode(buf.getvalue()).decode('utf-8')
-
-def composite_rgb_with_masks(rgb_frame: np.ndarray, encoded_masks: dict) -> np.ndarray:
-    """Overlay segmentation masks onto an RGB frame."""
-    import cv2
-    output = rgb_frame.copy()
-    colors = [[255,0,0], [0,255,0], [0,0,255], [255,255,0], [255,0,255], [0,255,255]]
-
-    for idx, (obj_id, mask_base64) in enumerate(encoded_masks.items()):
-        try:
-            mask_rgba = np.array(Image.open(io.BytesIO(base64.b64decode(mask_base64))))
-            mask = mask_rgba[:, :, 3] > 0 if mask_rgba.shape[2] == 4 else mask_rgba[:, :, 0] > 0
-            if mask.shape[:2] != rgb_frame.shape[:2]:
-                mask = cv2.resize(mask.astype(np.uint8),
-                                  (rgb_frame.shape[1], rgb_frame.shape[0]),
-                                  interpolation=cv2.INTER_NEAREST).astype(bool)
-            output[mask] = (output[mask] * 0.5 + np.array(colors[idx % len(colors)]) * 0.5).astype(np.uint8)
-        except Exception as e:
-            logger.error(f"Failed to decode mask {obj_id}: {e}")
-
-    return output
-
-
-# ============================================================
-#  Dashboard broadcasting
-# ============================================================
-
-async def _broadcast_to_dashboards(msg_json: str):
-    """Send a JSON string to all dashboard WebSocket connections."""
-    disconnected = set()
-    for conn in dashboard_connections:
-        try:
-            await conn.send_text(msg_json)
-        except Exception:
-            disconnected.add(conn)
-    dashboard_connections.difference_update(disconnected)
-
-async def broadcast_frame_to_dashboards(client_id: str, frame_data: dict):
-    """Encode frame data and broadcast to all connected dashboards."""
-    if not dashboard_connections:
-        return
-
-    msg: dict = {
-        'type': 'frame_update',
-        'client_id': client_id,
-        'timestamp': frame_data.get('timestamp_ns', 0),
-        'frame_number': frame_data.get('frame_number', 0),
-    }
-
-    # RGB + segmentation overlay
-    if 'rgb_image' in frame_data:
-        try:
-            msg['rgb_frame'] = encode_image_to_base64(frame_data['rgb_image'])
-            h, w = frame_data['rgb_image'].shape[:2]
-            msg['resolution'] = {'width': w, 'height': h}
-
-            if segmentation_enabled.get(client_id, True) and client_id in latest_segmentation_masks:
-                masks = latest_segmentation_masks[client_id]
-                if masks:
-                    try:
-                        msg['segmentation_frame'] = encode_image_to_base64(
-                            composite_rgb_with_masks(frame_data['rgb_image'], masks))
-                    except Exception as e:
-                        logger.error(f"Failed to composite segmentation: {e}")
-        except Exception as e:
-            logger.error(f"Failed to encode RGB image: {e}")
-
-    # Depth
-    if 'depth_map' in frame_data:
-        try:
-            msg['depth_frame'] = encode_depth_to_base64(frame_data['depth_map'])
-        except Exception as e:
-            logger.error(f"Failed to encode depth map: {e}")
-
-    # Camera matrices (flatten numpy arrays to lists)
-    if 'camera' in frame_data:
-        camera = frame_data['camera']
-        cam_msg: dict = {}
-        for key in ('pose_matrix', 'view_matrix', 'projection_matrix', 'intrinsic_matrix'):
-            if key in camera and camera[key] is not None:
-                cam_msg[key] = camera[key].flatten().tolist()
-        msg['camera'] = cam_msg
-        msg['tracking_state'] = camera.get('tracking_state', 0)
-
-    # Motion (already plain dicts)
-    if 'motion' in frame_data:
-        msg['motion'] = frame_data['motion']
-
-    latest_frames[client_id] = msg
-    await _broadcast_to_dashboards(json.dumps(msg))
-
-async def broadcast_segmentation_to_dashboards(client_id: str, encoded_masks: dict, prompt: str):
-    if not dashboard_connections:
-        return
-    await _broadcast_to_dashboards(json.dumps({
-        'type': 'segmentation_update',
-        'client_id': client_id,
-        'masks': encoded_masks,
-        'prompt': prompt,
-    }))
-
-
-# ============================================================
-#  Segmentation result callback
-# ============================================================
-
-async def handle_segmentation_result(data: dict):
-    if data.get('type') != 'segmentation_result':
-        return
-    client_id = data.get('client_id')
-    if not segmentation_enabled.get(client_id, True):
-        return
-    encoded_masks = data.get('masks', {})
-    latest_segmentation_masks[client_id] = encoded_masks
-    client_manager.increment_seg_output(client_id)
-    logger.info(f"Segmentation result for {client_id}: {len(encoded_masks)} masks")
-    await broadcast_segmentation_to_dashboards(client_id, encoded_masks, data.get('prompt', 'unknown'))
-
-
-# ============================================================
-#  Playback helper
-# ============================================================
-
-def _make_playback_broadcast(playback_client_id: str):
-    """Create a broadcast callback for playback frames."""
-    async def broadcast_frame(ar_frame):
-        frame_data = extract_frame_data(ar_frame, playback_client_id)
-        frame_buffer = client_manager.get_frame_buffer(playback_client_id)
-        if frame_buffer:
-            frame_buffer.add_frame(frame_data)
-            client_manager.update_last_frame_time(playback_client_id)
-        await broadcast_frame_to_dashboards(playback_client_id, frame_data)
-    return broadcast_frame
-
-
-# ============================================================
-#  WebSocket: AR stream (phone -> server)
-# ============================================================
+# ═══════════════════════════════════════════════════════════════════════════════
+#  WebSocket: AR stream  (Android → server)
+# ═══════════════════════════════════════════════════════════════════════════════
 
 @app.websocket("/ar-stream")
-async def websocket_endpoint(websocket: WebSocket):
-    temp_client_id = f"{websocket.client.host}:{websocket.client.port}"
-    client_id = temp_client_id
-    device_id = None
+async def ar_stream_ws(websocket: WebSocket):
+    addr = f"{websocket.client.host}:{websocket.client.port}"
+    await websocket.accept()
+    logger.info(f"AR client connected: {addr}")
+
+    # Stop any running replay so the live client takes over
+    await stream.stop_replay()
+    stream.clear()
+    stream.set_source("live")
 
     try:
-        await websocket.accept()
-    except Exception as e:
-        logger.error(f"Failed to accept connection from {temp_client_id}: {e}")
-        return
-
-    if ar_stream_pb2 is None:
-        try:
-            await websocket.send_text("ERROR: Protobuf not initialized on server")
-            await websocket.close(code=1011, reason="Protobuf not initialized")
-        except Exception:
-            pass
-        return
-
-    try:
-        await websocket.send_text(f"Connected to AR Stream Server - ID: {temp_client_id}")
-    except Exception:
-        pass
-
-    try:
-        frame_count = 0
-        while True:
-            data = await websocket.receive_bytes()
-            frame_count += 1
-
-            ar_frame = ar_stream_pb2.ARFrame()
+        async for raw in _iter_ws_bytes(websocket):
+            frame = perceiver_pb2.PerceiverDataFrame()
             try:
-                ar_frame.ParseFromString(data)
-            except Exception as e:
-                logger.error(f"Failed to parse protobuf from {temp_client_id}: {e}")
+                frame.ParseFromString(raw)
+            except Exception as exc:
+                logger.warning(f"Proto parse error from {addr}: {exc}")
                 continue
-
-            # Register client on first frame
-            if frame_count == 1:
-                if ar_frame.device_id:
-                    device_id = ar_frame.device_id
-                    old_client = client_manager.find_client_by_device_id(device_id)
-                    if old_client:
-                        client_manager.remove_client(old_client)
-                    client_id = device_id
-                else:
-                    client_id = temp_client_id
-                client_manager.add_client(client_id, websocket, device_id=device_id, connection_info=temp_client_id)
-
-            frame_data = extract_frame_data(ar_frame, client_id)
-
-            # Buffer frame
-            frame_buffer = client_manager.get_frame_buffer(client_id)
-            if frame_buffer:
-                frame_buffer.add_frame(frame_data)
-                client_manager.update_last_frame_time(client_id)
-
-            # Segmentation (throttled)
-            if 'rgb_image' in frame_data and segmentation_enabled.get(client_id, True):
-                now = asyncio.get_event_loop().time()
-                if now - last_segmentation_time.get(client_id, 0) >= SEGMENTATION_FRAME_INTERVAL:
-                    last_segmentation_time[client_id] = now
-                    asyncio.create_task(segmentation_client.send_frame(
-                        client_id, frame_data['rgb_image'], ar_frame.frame_number))
-                    client_manager.increment_seg_request(client_id)
-
-            # Broadcast to dashboards
-            if dashboard_connections:
-                asyncio.create_task(broadcast_frame_to_dashboards(client_id, frame_data))
-
+            stream.push(frame)
     except WebSocketDisconnect:
         pass
-    except Exception as e:
-        logger.error(f"Error for client {client_id}: {e}", exc_info=True)
+    except Exception as exc:
+        logger.error(f"AR stream error ({addr}): {exc}", exc_info=True)
     finally:
-        client_manager.remove_client(client_id)
-        for d in (segmentation_enabled, last_segmentation_time, latest_segmentation_masks):
-            d.pop(client_id, None)
+        logger.info(f"AR client disconnected: {addr}  (pushed {stream.frame_count} frames)")
+        stream.set_source("none")
 
 
-# ============================================================
-#  WebSocket: Dashboard
-# ============================================================
+async def _iter_ws_bytes(ws: WebSocket):
+    """Yield binary WebSocket messages until disconnect."""
+    while True:
+        yield await ws.receive_bytes()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  WebSocket: Dashboard  (server → browser)
+# ═══════════════════════════════════════════════════════════════════════════════
 
 @app.websocket("/ws/dashboard")
-async def dashboard_websocket(websocket: WebSocket):
+async def dashboard_ws(websocket: WebSocket):
     await websocket.accept()
-    dashboard_connections.add(websocket)
-    logger.info(f"Dashboard connected. Total: {len(dashboard_connections)}")
+    _dashboard_connections.add(websocket)
+    logger.info(f"Dashboard connected  (total: {len(_dashboard_connections)})")
+
+    # Send the latest frame immediately so the UI isn't blank on connect
+    latest = stream.latest()
+    if latest:
+        try:
+            await websocket.send_text(json.dumps(frame_to_dashboard_msg(latest)))
+        except Exception:
+            pass
+
+    # Subscribe: every new frame gets pushed to this client
+    async def on_frame(frame: perceiver_pb2.PerceiverDataFrame) -> None:
+        try:
+            await websocket.send_text(json.dumps(frame_to_dashboard_msg(frame)))
+        except Exception:
+            pass  # disconnect handled in finally
+
+    unsub = stream.subscribe(on_frame)
 
     try:
+        # Keep connection alive; handle any inbound messages from the dashboard
         while True:
             try:
-                message = await asyncio.wait_for(websocket.receive_text(), timeout=0.1)
-                data = json.loads(message)
-                if data.get('action') == 'subscribe':
-                    subscribed_client = data.get('client_id')
-                    if subscribed_client in latest_frames:
-                        await websocket.send_text(json.dumps(latest_frames[subscribed_client]))
+                text = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+                await _handle_dashboard_message(websocket, json.loads(text))
             except asyncio.TimeoutError:
-                pass
+                pass  # heartbeat / keep-alive
             except json.JSONDecodeError:
                 pass
-            await asyncio.sleep(0.1)
     except WebSocketDisconnect:
         pass
-    except Exception as e:
-        logger.error(f"Dashboard WebSocket error: {e}", exc_info=True)
+    except Exception as exc:
+        logger.error(f"Dashboard WS error: {exc}", exc_info=True)
     finally:
-        dashboard_connections.discard(websocket)
+        unsub()
+        _dashboard_connections.discard(websocket)
+        logger.info(f"Dashboard disconnected  (total: {len(_dashboard_connections)})")
 
 
-# ============================================================
-#  WebSocket: Segmentation prompts
-# ============================================================
-
-@app.websocket("/ws/segmentation")
-async def segmentation_websocket(websocket: WebSocket):
-    await websocket.accept()
-    logger.info("Segmentation client connected")
-
-    try:
-        while True:
-            message = await websocket.receive_text()
-            data = json.loads(message)
-
-            try:
-                msg_type = data.get('type')
-                client_id = data.get('client_id')
-
-                if msg_type in ('add_text_prompt', 'add_point_prompt'):
-                    kwargs = {'client_id': client_id}
-                    if msg_type == 'add_text_prompt':
-                        kwargs['text'] = data.get('text')
-                    else:
-                        kwargs['points'] = data.get('points')
-                        kwargs['labels'] = data.get('labels')
-                    await segmentation_client.send_prompt(**kwargs)
-                    await websocket.send_text(json.dumps({
-                        'type': 'segmentation_queued',
-                        'client_id': client_id,
-                        'message': 'Segmentation started, results will stream when ready',
-                    }))
-
-                elif msg_type == 'clear_masks':
-                    await segmentation_client.clear_session(client_id)
-                    latest_segmentation_masks.pop(client_id, None)
-                    await websocket.send_text(json.dumps({'type': 'masks_cleared', 'client_id': client_id}))
-
-                elif msg_type == 'get_status':
-                    status = await segmentation_client.get_status()
-                    await websocket.send_text(json.dumps({'type': 'status', 'status': status}))
-
-            except ValueError as e:
-                await websocket.send_text(json.dumps({'type': 'error', 'message': str(e)}))
-            except Exception as e:
-                logger.error(f"Segmentation error: {e}", exc_info=True)
-                await websocket.send_text(json.dumps({'type': 'error', 'message': f"Internal error: {e}"}))
-
-    except WebSocketDisconnect:
-        pass
-    except Exception as e:
-        logger.error(f"Segmentation WebSocket error: {e}", exc_info=True)
+async def _handle_dashboard_message(ws: WebSocket, msg: dict) -> None:
+    """Handle control messages sent from the dashboard over /ws/dashboard."""
+    action = msg.get("action")
+    if action == "get_stats":
+        await ws.send_text(json.dumps({"type": "stats", **stream.stats()}))
+    elif action == "get_latest":
+        frame = stream.latest()
+        if frame:
+            await ws.send_text(json.dumps(frame_to_dashboard_msg(frame)))
 
 
-# ============================================================
+# ═══════════════════════════════════════════════════════════════════════════════
 #  REST API
-# ============================================================
-
-@app.get("/api/clients")
-async def get_clients():
-    clients_data = []
-    for client_id in client_manager.get_all_clients():
-        buffer = client_manager.get_frame_buffer(client_id)
-        if buffer:
-            stats = buffer.get_stats()
-            seg = client_manager.get_seg_counters(client_id)
-            clients_data.append({
-                'client_id': stats['client_id'],
-                'frame_count': stats['frames_received'],
-                'current_fps': round(stats['avg_fps_received'], 1),
-                'buffer_size': stats['buffer_size'],
-                'max_buffer_size': stats['max_size'],
-                'depth_percentage': stats['depth_percentage'],
-                'frames_with_depth': stats['frames_with_depth'],
-                'frames_without_depth': stats['frames_without_depth'],
-                'seg_requests_sent': seg['seg_requests_sent'],
-                'seg_outputs_received': seg['seg_outputs_received'],
-            })
-    return {"clients": clients_data, "count": len(clients_data)}
+# ═══════════════════════════════════════════════════════════════════════════════
 
 @app.get("/api/health")
-async def health_check():
-    seg_status = await segmentation_client.get_status()
+async def health():
     return {
-        "version": "split-service",
-        "main_server": "running",
-        "segmentation_server": "connected" if seg_status.get("connected") else "disconnected",
-        "active_clients": len(client_manager.get_all_clients()),
-        "dashboard_connections": len(dashboard_connections),
+        "status": "running",
+        "version": "2.0.0",
+        "dashboard_connections": len(_dashboard_connections),
+        **stream.stats(),
     }
 
-@app.post("/api/segmentation/enable")
-async def api_enable_segmentation(request: dict):
-    client_id = request.get("client_id")
-    if not client_id:
-        raise HTTPException(status_code=400, detail="Missing client_id")
-    segmentation_enabled[client_id] = True
-    last_segmentation_time[client_id] = 0
-    await segmentation_client.clear_session(client_id)
-    latest_segmentation_masks.pop(client_id, None)
-    logger.info(f"Segmentation enabled for {client_id}")
-    return {"status": "enabled", "client_id": client_id}
 
-@app.post("/api/segmentation/disable")
-async def api_disable_segmentation(request: dict):
-    client_id = request.get("client_id")
-    if not client_id:
-        raise HTTPException(status_code=400, detail="Missing client_id")
-    segmentation_enabled[client_id] = False
-    last_segmentation_time.pop(client_id, None)
-    await segmentation_client.clear_session(client_id)
-    latest_segmentation_masks.pop(client_id, None)
-    logger.info(f"Segmentation disabled for {client_id}")
-    return {"status": "disabled", "client_id": client_id}
+@app.get("/api/stream")
+async def get_stream_stats():
+    return stream.stats()
+
 
 @app.get("/api/recordings")
-async def get_recordings():
+async def list_recordings():
+    files = sorted(RECORDINGS_DIR.glob("*.pb"), key=lambda p: p.stat().st_mtime, reverse=True)
     return {
         "recordings": [
-            {"filename": rec.name, "size_mb": round(rec.stat().st_size / (1024 * 1024), 2), "modified": rec.stat().st_mtime}
-            for rec in playback_manager.list_recordings()
+            {
+                "filename": p.name,
+                "size_mb": round(p.stat().st_size / (1024 ** 2), 2),
+                "modified": p.stat().st_mtime,
+            }
+            for p in files
         ]
     }
+
 
 @app.post("/api/playback/start")
 async def start_playback(request: dict):
     filename = request.get("filename")
     if not filename:
         raise HTTPException(status_code=400, detail="Missing filename")
-    try:
-        playback_id = f"playback_{filename}"
-        client_manager.add_client(playback_id, None)
-        await playback_manager.start_playback(filename, _make_playback_broadcast(playback_id), ar_stream_pb2,
-                                              request.get("speed", 1.0), request.get("loop", False))
-        return {"status": "success", "message": f"Playback started: {filename}"}
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        logger.error(f"Playback start error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    path = RECORDINGS_DIR / filename
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"Recording not found: {filename}")
+    await stream.start_replay(
+        path,
+        speed=float(request.get("speed", 1.0)),
+        loop=bool(request.get("loop", False)),
+    )
+    return {"status": "started", "filename": filename}
+
 
 @app.post("/api/playback/stop")
 async def stop_playback():
-    await playback_manager.stop_playback()
-    return {"status": "success", "message": "Playback stopped"}
+    await stream.stop_replay()
+    return {"status": "stopped"}
+
 
 @app.get("/api/playback/status")
-async def get_playback_status():
-    return playback_manager.get_status()
+async def playback_status():
+    return {
+        "is_replaying": stream.is_replaying,
+        "source": stream.source,
+    }
+
 
 @app.post("/api/upload_recording")
 async def upload_recording(file: UploadFile = File(...)):
-    try:
-        file_path = playback_manager.recordings_dir / file.filename
-        content = await file.read()
-        with open(file_path, "wb") as f:
-            f.write(content)
-        logger.info(f"Uploaded recording: {file.filename} ({len(content)} bytes)")
-
-        playback_id = f"playback_{file.filename}"
-        client_manager.add_client(playback_id, None)
-        await playback_manager.start_playback(file.filename, _make_playback_broadcast(playback_id),
-                                              ar_stream_pb2, speed=1.0, loop=False)
-        return {"status": "success", "message": f"Uploaded and started: {file.filename}",
-                "filename": file.filename, "size": len(content)}
-    except Exception as e:
-        logger.error(f"Upload error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    if not file.filename.endswith(".pb"):
+        raise HTTPException(status_code=400, detail="Expected a .pb file")
+    dest = RECORDINGS_DIR / file.filename
+    content = await file.read()
+    dest.write_bytes(content)
+    logger.info(f"Uploaded {file.filename} ({len(content) / 1024:.1f} KB)")
+    await stream.start_replay(dest, speed=1.0, loop=False)
+    return {"status": "uploaded_and_playing", "filename": file.filename, "size": len(content)}
 
 
-# ============================================================
-#  Static file serving (React dashboard) - MUST be last
-# ============================================================
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Static files (React dashboard)  — must be registered last
+# ═══════════════════════════════════════════════════════════════════════════════
 
-dashboard_dist = Path(__file__).parent.parent / 'dashboard' / 'dist'
-if dashboard_dist.exists():
-    app.mount("/", StaticFiles(directory=str(dashboard_dist), html=True), name="dashboard")
+_dashboard_dist = Path(__file__).parent.parent / "dashboard" / "dist"
+if _dashboard_dist.exists():
+    app.mount("/", StaticFiles(directory=str(_dashboard_dist), html=True), name="dashboard")
 else:
-    logger.warning(f"Dashboard build not found at {dashboard_dist}. Run 'npm run build' in dashboard/")
+    logger.warning(f"Dashboard build not found at {_dashboard_dist}. Run 'npm run build' in dashboard/")
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Entry point
+# ═══════════════════════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host=config['server']['host'], port=config['server']['port'], log_level="info")
+    uvicorn.run(
+        app,
+        host=config["server"]["host"],
+        port=config["server"]["port"],
+        log_level="info",
+    )

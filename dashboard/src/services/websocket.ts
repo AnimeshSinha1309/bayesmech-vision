@@ -83,10 +83,17 @@ class DashboardWebSocketService {
   }
 
   /**
-   * Sends a subscribe message to receive frames for the given client.
+   * Request the latest stream stats from the server.
    */
-  subscribe(clientId: string): void {
-    this.send({ action: 'subscribe', client_id: clientId })
+  getStats(): void {
+    this.send({ action: 'get_stats' })
+  }
+
+  /**
+   * Request the latest frame to be resent.
+   */
+  getLatest(): void {
+    this.send({ action: 'get_latest' })
   }
 
   /**

@@ -5,19 +5,9 @@ import InfoCard from './InfoCard'
 const InfoCards: React.FC = () => {
   const { frameCount, fps, latestFrame } = useDashboard()
 
-  const resolution = latestFrame?.resolution
-    ? `${latestFrame.resolution.width}x${latestFrame.resolution.height}`
-    : 'N/A'
-
-  const trackingStateLabels: Record<number, string> = {
-    0: 'Not Available',
-    1: 'Limited',
-    2: 'Normal',
-    3: 'Extended',
-  }
-
-  const trackingState = latestFrame?.tracking_state !== undefined
-    ? trackingStateLabels[latestFrame.tracking_state] ?? `State ${latestFrame.tracking_state}`
+  const source = latestFrame?.source ?? 'none'
+  const deviceId = latestFrame?.device_id
+    ? latestFrame.device_id.slice(0, 8)
     : 'N/A'
 
   return (
@@ -31,8 +21,8 @@ const InfoCards: React.FC = () => {
     >
       <InfoCard value={frameCount} label="Frames Received" />
       <InfoCard value={fps.toFixed(1)} label="FPS" />
-      <InfoCard value={resolution} label="Resolution" />
-      <InfoCard value={trackingState} label="Tracking State" />
+      <InfoCard value={source} label="Source" />
+      <InfoCard value={deviceId} label="Device ID" />
     </div>
   )
 }

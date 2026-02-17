@@ -13,74 +13,53 @@ export interface Quaternion {
   w: number
 }
 
-export interface Resolution {
-  width: number
-  height: number
+// === Camera & IMU ===
+
+export interface CameraPose {
+  position: Vec3
+  rotation: Quaternion
 }
 
-// === Camera & Motion ===
-
-export interface CameraData {
-  pose_matrix?: number[]
-  view_matrix?: number[]
-  projection_matrix?: number[]
-  intrinsic_matrix?: number[]
+export interface CameraIntrinsics {
+  fx: number
+  fy: number
+  cx: number
+  cy: number
+  image_width: number
+  image_height: number
+  depth_width: number
+  depth_height: number
 }
 
-export interface MotionData {
-  linear_acceleration?: Vec3
-  linear_velocity_pose?: Vec3
-  linear_velocity_accel?: Vec3
+export interface ImuData {
   angular_velocity?: Vec3
+  linear_acceleration?: Vec3
   gravity?: Vec3
-  orientation?: Quaternion
+  magnetic_field?: Vec3
+}
+
+export interface InferredGeometry {
+  plane_count: number
+  point_cloud_count: number
 }
 
 // === WebSocket incoming messages ===
 
 export interface FrameUpdateMessage {
   type: 'frame_update'
-  client_id: string
-  timestamp: number
+  source: string
+  device_id: string
+  timestamp_ns: number
   frame_number: number
   rgb_frame?: string
-  segmentation_frame?: string
   depth_frame?: string
-  camera?: CameraData
-  resolution?: Resolution
-  tracking_state?: number
-  motion?: MotionData
+  camera_pose?: CameraPose
+  camera_intrinsics?: CameraIntrinsics
+  imu?: ImuData
+  inferred_geometry?: InferredGeometry
 }
 
-export interface ClientInfo {
-  client_id: string
-  frame_count: number
-  current_fps: number
-  buffer_size: number
-  max_buffer_size: number
-  depth_percentage: number
-  frames_with_depth: number
-  frames_without_depth: number
-  seg_requests_sent: number
-  seg_outputs_received: number
-}
-
-export interface ClientsUpdateMessage {
-  type: 'clients_update'
-  clients: ClientInfo[]
-}
-
-export interface SegmentationUpdateMessage {
-  type: 'segmentation_update'
-  client_id: string
-  masks: Record<string, string>
-  prompt?: string
-}
-
-export type DashboardMessage =
-  | FrameUpdateMessage
-  | ClientsUpdateMessage
-  | SegmentationUpdateMessage
+export type DashboardMessage = FrameUpdateMessage
 
 // === Chart data ===
 
@@ -106,7 +85,18 @@ export type ConnectionStatus = 'Connected' | 'Disconnected' | 'Connecting'
 
 // === API responses ===
 
-export interface ClientsResponse {
-  clients: ClientInfo[]
-  count: number
+export interface StreamStats {
+  source: string
+  device_id: string | null
+  frame_count: number
+  buffered_frames: number
+  fps: number
+  is_replaying: boolean
+  intrinsics: CameraIntrinsics | null
+}
+
+export interface RecordingInfo {
+  filename: string
+  size_mb: number
+  modified: number
 }

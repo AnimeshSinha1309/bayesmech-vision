@@ -1,48 +1,30 @@
 import { useDashboard } from '../context/DashboardContext'
 import StreamViewer from './StreamViewer'
-import SegmentationToggle from './SegmentationToggle'
 import CameraMatrices from './CameraMatrices'
 import MotionChart from './MotionChart'
 import InfoCards from './InfoCards'
 import TrajectoryCanvas from './TrajectoryCanvas'
-import type { MotionData } from '../types'
+import type { ImuData } from '../types'
 
 const XYZ = ['X', 'Y', 'Z']
-const XYZW = ['X', 'Y', 'Z', 'W']
 
 const SENSOR_CHARTS: {
-  field: keyof MotionData
+  field: keyof ImuData
   title: string
   yAxisLabel: string
   axisLabels: string[]
-  yMin?: number
-  yMax?: number
 }[] = [
-  { field: 'linear_acceleration', title: 'Linear Acceleration', yAxisLabel: 'm/s\u00B2', axisLabels: XYZ },
-  { field: 'linear_velocity_pose', title: 'Linear Velocity - Pose', yAxisLabel: 'm/s', axisLabels: XYZ },
-  { field: 'linear_velocity_accel', title: 'Linear Velocity - Accel', yAxisLabel: 'm/s', axisLabels: XYZ },
+  { field: 'linear_acceleration', title: 'Linear Acceleration', yAxisLabel: 'm/s²', axisLabels: XYZ },
   { field: 'angular_velocity', title: 'Angular Velocity', yAxisLabel: 'rad/s', axisLabels: XYZ },
-  { field: 'gravity', title: 'Gravity', yAxisLabel: 'm/s\u00B2', axisLabels: XYZ },
-  { field: 'orientation', title: 'Orientation (Quaternion)', yAxisLabel: 'Quaternion', axisLabels: XYZW, yMin: -1, yMax: 1 },
+  { field: 'gravity', title: 'Gravity', yAxisLabel: 'm/s²', axisLabels: XYZ },
+  { field: 'magnetic_field', title: 'Magnetic Field', yAxisLabel: 'µT', axisLabels: XYZ },
 ]
 
 const StreamSection = () => {
-  const {
-    selectedClientId,
-    latestFrame,
-    segmentationEnabled,
-    segmentationMaskCount,
-    toggleSegmentation,
-  } = useDashboard()
-
-  if (!selectedClientId) return null
+  const { latestFrame } = useDashboard()
 
   return (
     <section className="stream-section">
-      <h2 className="section-title" style={{ marginBottom: '1rem' }}>
-        Streaming: {selectedClientId}
-      </h2>
-
       {/* Video streams */}
       <div
         className="streams-grid"
@@ -58,37 +40,21 @@ const StreamSection = () => {
           badge="RGB"
           imageData={latestFrame?.rgb_frame}
           imageFormat="jpeg"
-          placeholderIcon={'\u{1F3A5}'}
+          placeholderIcon={'🎥'}
           placeholderText="Waiting for RGB frames..."
-        />
-
-        <StreamViewer
-          title="Segmentation"
-          badge="SEG"
-          imageData={latestFrame?.segmentation_frame}
-          imageFormat="png"
-          placeholderIcon={'\u{1F3AD}'}
-          placeholderText="Waiting for segmentation..."
-          headerExtra={
-            <SegmentationToggle
-              enabled={segmentationEnabled}
-              maskCount={segmentationMaskCount}
-              onToggle={toggleSegmentation}
-            />
-          }
         />
 
         <StreamViewer
           title="Depth Map"
           badge="DEPTH"
           imageData={latestFrame?.depth_frame}
-          imageFormat="jpeg"
-          placeholderIcon={'\u{1F30A}'}
+          imageFormat="png"
+          placeholderIcon={'🌊'}
           placeholderText="Waiting for depth frames..."
         />
       </div>
 
-      {/* Camera matrices */}
+      {/* Camera pose + intrinsics */}
       <div style={{ marginBottom: '1.5rem' }}>
         <CameraMatrices />
       </div>

@@ -2,13 +2,12 @@ import { useEffect } from 'react'
 import { useDashboard } from '../context/DashboardContext'
 import { useChartData } from '../hooks/useChartData'
 import SensorChart from './SensorChart'
-import type { MotionData } from '../types'
+import type { ImuData } from '../types'
 
 interface MotionChartProps {
   title: string
   yAxisLabel: string
-  /** Key into MotionData to extract values from */
-  field: keyof MotionData
+  field: keyof ImuData
   axisLabels: string[]
   yMin?: number
   yMax?: number
@@ -19,7 +18,7 @@ const MotionChart = ({ title, yAxisLabel, field, axisLabels, yMin, yMax }: Motio
   const { datasets, xMin, xMax, addPoint } = useChartData(axisLabels.length)
 
   useEffect(() => {
-    const data = latestFrame?.motion?.[field]
+    const data = latestFrame?.imu?.[field]
     if (!data) return
 
     const record = data as unknown as Record<string, number>

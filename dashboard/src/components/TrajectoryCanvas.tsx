@@ -11,21 +11,17 @@ const TrajectoryCanvas: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const trajectory = useTrajectory(CANVAS_WIDTH, CANVAS_HEIGHT)
 
-  // Add position when new frame arrives with camera + motion data
   useEffect(() => {
-    if (!latestFrame?.camera || !latestFrame?.motion) return
-    trajectory.addPosition(latestFrame.camera, latestFrame.motion)
+    if (!latestFrame?.camera_pose) return
+    trajectory.addPosition(latestFrame.camera_pose, latestFrame.imu)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [latestFrame])
 
-  // Redraw trajectory when state changes
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-
     const ctx = canvas.getContext('2d')
     if (!ctx) return
-
     drawTrajectory(ctx, canvas, trajectory.points, trajectory.scale, trajectory.offset)
   }, [trajectory.points, trajectory.scale, trajectory.offset])
 
