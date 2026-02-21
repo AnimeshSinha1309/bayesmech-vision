@@ -3,8 +3,7 @@ import React from 'react'
 interface StreamViewerProps {
   title: string
   badge: string
-  imageData?: string
-  imageFormat: 'jpeg' | 'png'
+  blobUrl?: string
   placeholderIcon: string
   placeholderText: string
   headerExtra?: React.ReactNode
@@ -13,8 +12,7 @@ interface StreamViewerProps {
 const StreamViewer: React.FC<StreamViewerProps> = ({
   title,
   badge,
-  imageData,
-  imageFormat,
+  blobUrl,
   placeholderIcon,
   placeholderText,
   headerExtra,
@@ -39,9 +37,9 @@ const StreamViewer: React.FC<StreamViewerProps> = ({
           position: 'relative',
         }}
       >
-        {imageData ? (
+        {blobUrl ? (
           <img
-            src={`data:image/${imageFormat};base64,${imageData}`}
+            src={blobUrl}
             alt={title}
             style={{ width: '100%', height: '100%', objectFit: 'contain' }}
           />

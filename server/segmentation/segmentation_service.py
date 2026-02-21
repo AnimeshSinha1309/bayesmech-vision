@@ -363,93 +363,77 @@ class SegmentationService:
             raise ValueError(f"Segmentation error: {str(e)}")
 
     async def _segment_sam2(self, session, temp_dir, text_prompt, points, labels):
-        """SAM2-specific segmentation logic"""
-        # Initialize SAM2 video inference state
-        inference_state = self.video_predictor.init_state(video_path=temp_dir)
-        session.inference_state = inference_state
+        """SAM2-specific segmentation logic — runs GPU work in a thread."""
+        if text_prompt:
+            raise ValueError("SAM2 doesn't support text prompts. Use point prompts or switch to SAM3.")
 
         latest_frame_idx = len(session.frame_buffer) - 1
+        max_objects = CONFIG['streaming'].get('max_tracked_objects', 6)
 
-        # SAM2 uses different API
-        if points and labels:
-            # For multiple points, we add them all at once to get unique objects
-            # SAM2 will automatically separate different objects
-            points_array = np.array(points, dtype=np.float32)
-            labels_array = np.array(labels, dtype=np.int32)
+        def _run_segment():
+            predictor = self.video_predictor
+            inference_state = predictor.init_state(video_path=temp_dir)
+            session.inference_state = inference_state
 
-            # Start with object ID 1 and increment for each new prompt
-            # For grid-based auto-segmentation, we want SAM2 to segment each point region
-            # We'll add points one by one to generate separate objects
             out_obj_ids = []
             out_mask_logits_list = []
-
-            max_objects = CONFIG['streaming'].get('max_tracked_objects', 6)
-
-            # For auto-segmentation with many points, sample a subset
-            if len(points) > max_objects * 3:
-                # Sample evenly distributed points
-                step = len(points) // max_objects
-                sampled_indices = range(0, len(points), step)
-                points_to_use = [points[i] for i in sampled_indices]
-                labels_to_use = [labels[i] for i in sampled_indices]
-            else:
-                points_to_use = points
-                labels_to_use = labels
-
-            # Add each point as a separate prompt to get individual objects
-            # Store mapping of obj_id to its specific point
             obj_point_map = {}
-            for idx, (point, label) in enumerate(zip(points_to_use, labels_to_use)):
-                if idx >= max_objects:
-                    break
 
-                obj_id = idx + 1
-                try:
-                    _, obj_ids, mask_logits = self.video_predictor.add_new_points_or_box(
-                        inference_state=inference_state,
-                        frame_idx=latest_frame_idx,
-                        obj_id=obj_id,
-                        points=np.array([point], dtype=np.float32),
-                        labels=np.array([label], dtype=np.int32),
-                    )
-                    out_obj_ids.extend(obj_ids)
-                    out_mask_logits_list.extend(mask_logits)
-                    # Map this object to its specific point
-                    for oid in obj_ids:
-                        obj_point_map[oid] = (point, label)
-                except Exception as e:
-                    print(f"    Warning: Failed to add point {idx}: {e}")
-                    continue
+            if points and labels:
+                if len(points) > max_objects * 3:
+                    step = len(points) // max_objects
+                    sampled_indices = range(0, len(points), step)
+                    points_to_use = [points[i] for i in sampled_indices]
+                    labels_to_use = [labels[i] for i in sampled_indices]
+                else:
+                    points_to_use = points
+                    labels_to_use = labels
 
-            # Store metadata for all tracked objects with their specific points
+                for idx, (point, label) in enumerate(zip(points_to_use, labels_to_use)):
+                    if idx >= max_objects:
+                        break
+                    obj_id = idx + 1
+                    try:
+                        _, obj_ids, mask_logits = predictor.add_new_points_or_box(
+                            inference_state=inference_state,
+                            frame_idx=latest_frame_idx,
+                            obj_id=obj_id,
+                            points=np.array([point], dtype=np.float32),
+                            labels=np.array([label], dtype=np.int32),
+                        )
+                        out_obj_ids.extend(obj_ids)
+                        out_mask_logits_list.extend(mask_logits)
+                        for oid in obj_ids:
+                            obj_point_map[oid] = (point, label)
+                    except Exception as e:
+                        print(f"    Warning: Failed to add point {idx}: {e}")
+
+            outputs = {}
+            for i, obj_id in enumerate(out_obj_ids):
+                if i < len(out_mask_logits_list):
+                    mask = (out_mask_logits_list[i] > 0.0).cpu().numpy().squeeze()
+                    if np.sum(mask) > 100:
+                        outputs[str(obj_id)] = mask
+
+            print(f"    Generated {len(outputs)} valid masks from {len(out_obj_ids)} prompts")
+            return outputs, out_obj_ids, obj_point_map
+
+        outputs, out_obj_ids, obj_point_map = await asyncio.to_thread(_run_segment)
+
+        # Store metadata (must happen on main thread — accesses session)
+        if points and labels:
             for obj_id in out_obj_ids:
-                point, label = obj_point_map.get(obj_id, (points_to_use[0], labels_to_use[0]))
+                point, label = obj_point_map.get(obj_id, (points[0], labels[0]))
                 session.tracked_objects[obj_id] = {
                     "prompt": "grid_point" if len(points) > 10 else "point_prompt",
                     "frame_added": latest_frame_idx,
                     "original_frame_number": session.frame_buffer[latest_frame_idx]['frame_number'],
-                    "points": [point],  # Store as list with single point
-                    "labels": [label]   # Store as list with single label
+                    "points": [point],
+                    "labels": [label],
                 }
 
-        elif text_prompt:
-            # SAM2 doesn't support text prompts directly
-            raise ValueError("SAM2 doesn't support text prompts. Use point prompts or switch to SAM3.")
-
-        # Extract masks
-        outputs = {}
-        for i, obj_id in enumerate(out_obj_ids):
-            if i < len(out_mask_logits_list):
-                mask = (out_mask_logits_list[i] > 0.0).cpu().numpy().squeeze()
-                # Filter out very small masks (noise)
-                if np.sum(mask) > 100:  # At least 100 pixels
-                    outputs[str(obj_id)] = mask
-
-        # Store latest masks in session
         session.latest_masks = outputs
         session.last_segmentation_frame = latest_frame_idx
-
-        print(f"    Generated {len(outputs)} valid masks from {len(out_obj_ids)} prompts")
         return outputs
 
     async def _segment_sam3(self, session, temp_dir, text_prompt, points, labels):
@@ -578,107 +562,73 @@ class SegmentationService:
             session.is_segmenting = False
 
     async def _propagate_sam2(self, session, temp_dir):
-        """SAM2 mask propagation"""
-        # Initialize SAM2 video inference state
-        inference_state = self.video_predictor.init_state(video_path=temp_dir)
-        session.inference_state = inference_state
-        
+        """SAM2 mask propagation — runs GPU work in a thread to avoid blocking the event loop."""
         latest_frame_idx = len(session.frame_buffer) - 1
-        
-        # We need to re-supply the prompt context to SAM2 for the current video cliip 
-        # (sliding window means we are seeing "new" video each time)
-        
-        prompts_applied = False
-        
-        # 1. Try to use previous mask as prompt if available (Continuity)
-        # Find the frame consistent with last_segmentation_frame in current buffer
-        # But since buffer shifts, we just rely on the object ID and logic:
-        # For simplicity in this sliding window, we might need to rely on the Initial Prompt
-        # OR if we have a mask from the VERY FIRST frame of this buffer (which was the LAST frame of previous)
-        
-        # Better approach for sliding window with SAM2:
-        # The buffer contains frames [N, N+1, ... N+20]
-        # We likely generated a mask for frame N (or close to it) in the previous step.
-        # So we should inject that mask at frame 0 of this buffer.
-        
-        # However, looking at the logic:
-        # frame_buffer stores {frame, frame_number}.
-        # We need to find if we have a mask for any frame currently in the buffer.
-        
-        start_frame_in_buffer = session.frame_buffer[0]['frame_number']
-        
-        # Check if we have a mask for this start frame from previous run?
-        # session.latest_masks stores result from 'last_segmentation_frame'.
-        # We need to know which absolute frame number that was.
-        
-        # Simplified strategy:
-        # ALWAYS re-apply the original prompt (points/box) on the correct frame relative to buffer
-        # This is robust for short buffers.
-        
-        for obj_id, metadata in session.tracked_objects.items():
-            prompt_type = metadata.get("prompt")
-            original_frame_num = metadata.get("original_frame_number", -1)
 
-            # Check if the original prompt frame is still in buffer
-            prompt_frame_idx = -1
-            for idx, f_data in enumerate(session.frame_buffer):
-                if f_data['frame_number'] == original_frame_num:
-                    prompt_frame_idx = idx
-                    break
+        def _run_propagation():
+            """Synchronous GPU work: init state, apply prompts, propagate."""
+            predictor = self.video_predictor
+            inference_state = predictor.init_state(video_path=temp_dir)
+            session.inference_state = inference_state
 
-            # If original frame is lost, apply prompts to frame 0 instead
-            if prompt_frame_idx < 0:
-                prompt_frame_idx = 0
-                # Update the metadata to reflect new frame number
-                metadata["original_frame_number"] = session.frame_buffer[0]['frame_number']
-                metadata["frame_added"] = 0
-                print(f"    [PROPAGATE] Re-anchoring obj {obj_id} to frame 0 (original frame lost)")
+            prompts_applied = False
 
-            # Re-apply point prompt to the target frame
-            if "points" in metadata and metadata["points"]:
-                try:
-                    self.video_predictor.add_new_points_or_box(
-                        inference_state=inference_state,
-                        frame_idx=prompt_frame_idx,
-                        obj_id=int(obj_id),
-                        points=np.array(metadata["points"], dtype=np.float32),
-                        labels=np.array(metadata["labels"], dtype=np.int32),
-                    )
-                    prompts_applied = True
-                except Exception as e:
-                    print(f"    Warning: Failed to re-apply prompt for obj {obj_id}: {e}")
+            for obj_id, metadata in session.tracked_objects.items():
+                original_frame_num = metadata.get("original_frame_number", -1)
 
-        # Safety check: Don't propagate if no prompts were applied
-        if not prompts_applied:
-            print(f"    [PROPAGATE] Warning: No prompts applied, skipping propagation")
-            return
+                prompt_frame_idx = -1
+                for idx, f_data in enumerate(session.frame_buffer):
+                    if f_data['frame_number'] == original_frame_num:
+                        prompt_frame_idx = idx
+                        break
 
-        print(f"    [PROPAGATE] Prompts applied successfully, propagating through {len(session.frame_buffer)} frames")
+                if prompt_frame_idx < 0:
+                    prompt_frame_idx = 0
+                    metadata["original_frame_number"] = session.frame_buffer[0]['frame_number']
+                    metadata["frame_added"] = 0
+                    print(f"    [PROPAGATE] Re-anchoring obj {obj_id} to frame 0 (original frame lost)")
 
-        # Propagate through the buffer
-        # read it into a dictionary
-        video_segments = {}  # video_segments contains the per-frame segmentation results
-        for out_frame_idx, out_obj_ids, out_mask_logits in self.video_predictor.propagate_in_video(inference_state):
-             video_segments[out_frame_idx] = {
-                 out_obj_id: (out_mask_logits[i] > 0.0).cpu().numpy().squeeze()
-                 for i, out_obj_id in enumerate(out_obj_ids)
-             }
-        
-        # Get result for the LATEST frame in buffer
-        if latest_frame_idx in video_segments:
-             session.latest_masks = video_segments[latest_frame_idx]
-             session.last_segmentation_frame = session.frame_buffer[latest_frame_idx]['frame_number']
-             
-             session.last_segmentation_frame = session.frame_buffer[latest_frame_idx]['frame_number']
-             
-             # Broadcast update using callback
-             if self.on_segmentation_result:
-                 # Pass raw numpy masks, not encoded
-                 await self.on_segmentation_result(
-                     client_id=session.client_id,
-                     masks=session.latest_masks,
-                     prompt="auto_propagation"
-                 )
+                if "points" in metadata and metadata["points"]:
+                    try:
+                        predictor.add_new_points_or_box(
+                            inference_state=inference_state,
+                            frame_idx=prompt_frame_idx,
+                            obj_id=int(obj_id),
+                            points=np.array(metadata["points"], dtype=np.float32),
+                            labels=np.array(metadata["labels"], dtype=np.int32),
+                        )
+                        prompts_applied = True
+                    except Exception as e:
+                        print(f"    Warning: Failed to re-apply prompt for obj {obj_id}: {e}")
+
+            if not prompts_applied:
+                print(f"    [PROPAGATE] Warning: No prompts applied, skipping propagation")
+                return None
+
+            print(f"    [PROPAGATE] Prompts applied successfully, propagating through {len(session.frame_buffer)} frames")
+
+            video_segments = {}
+            for out_frame_idx, out_obj_ids, out_mask_logits in predictor.propagate_in_video(inference_state):
+                video_segments[out_frame_idx] = {
+                    out_obj_id: (out_mask_logits[i] > 0.0).cpu().numpy().squeeze()
+                    for i, out_obj_id in enumerate(out_obj_ids)
+                }
+
+            return video_segments
+
+        video_segments = await asyncio.to_thread(_run_propagation)
+
+        if video_segments and latest_frame_idx in video_segments:
+            session.latest_masks = video_segments[latest_frame_idx]
+            session.last_segmentation_frame = session.frame_buffer[latest_frame_idx]['frame_number']
+
+            if self.on_segmentation_result:
+                await self.on_segmentation_result(
+                    client_id=session.client_id,
+                    masks=session.latest_masks,
+                    prompt="auto_propagation",
+                    frame_num=session.last_segmentation_frame,
+                )
 
 
     def composite_rgb_with_masks(self, rgb_frame: np.ndarray, masks: Dict[str, np.ndarray]) -> np.ndarray:

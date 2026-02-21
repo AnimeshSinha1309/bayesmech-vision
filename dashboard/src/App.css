@@ -5,22 +5,6 @@
 }
 
 :root {
-  --bg-dark: #fbfdfd;
-  --bg-card: #f0f4f5;
-  --bg-card-hover: #eaf1f3;
-  --accent: #00668b;
-  --accent-glow: rgba(0, 102, 139, 0.1);
-  --text: #191c1d;
-  --text-dim: #40484c;
-  --success: #2e6c46;
-  --warning: #7c5800;
-  --error: #ba1a1a;
-  --border: #dbe4e8;
-  --header-bg: #fbfdfd;
-  --shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
-}
-
-body.dark-mode {
   --bg-dark: #191c1d;
   --bg-card: #202526;
   --bg-card-hover: #262c2d;
@@ -42,7 +26,6 @@ body {
   color: var(--text);
   min-height: 100vh;
   overflow-x: hidden;
-  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 .header {
@@ -53,30 +36,6 @@ body {
   top: 0;
   z-index: 1000;
   box-shadow: var(--shadow);
-  transition: background-color 0.3s ease, border-color 0.3s ease;
-}
-
-.theme-toggle {
-  display: flex;
-  align-items: center;
-  cursor: pointer;
-  padding: 0.5rem 1rem;
-  border-radius: 20px;
-  margin-right: 1rem;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  color: var(--text);
-  transition: all 0.2s ease;
-  font-size: 0.875rem;
-}
-
-.theme-toggle:hover {
-  background: var(--bg-card-hover);
-}
-
-.theme-toggle .icon {
-  font-size: 1.25rem;
-  margin-right: 0.5rem;
 }
 
 .header-content {
@@ -135,10 +94,6 @@ body {
   padding: 2rem;
 }
 
-.clients-section {
-  margin-bottom: 2rem;
-}
-
 .section-title {
   font-size: 1.25rem;
   font-weight: 500;
@@ -147,67 +102,6 @@ body {
   align-items: center;
   gap: 0.5rem;
   color: var(--text);
-}
-
-.client-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 1.5rem;
-  margin-bottom: 2rem;
-}
-
-.client-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 1.5rem;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  position: relative;
-  overflow: hidden;
-}
-
-.client-card:hover {
-  background: var(--bg-card-hover);
-  transform: translateY(-2px);
-  box-shadow: var(--shadow);
-}
-
-.client-card.active {
-  background: var(--accent-glow);
-  border: 1px solid var(--accent);
-}
-
-.client-id {
-  font-weight: 500;
-  font-size: 1.1rem;
-  margin-bottom: 0.75rem;
-  color: var(--text);
-}
-
-.client-card.active .client-id {
-  color: var(--accent);
-}
-
-.client-stats {
-  font-size: 0.875rem;
-  color: var(--text-dim);
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-
-.viewer-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 1.5rem;
-  margin-bottom: 2rem;
-}
-
-@media (max-width: 1200px) {
-  .viewer-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 .stream-card {
@@ -268,51 +162,6 @@ body {
   gap: 0.5rem;
 }
 
-.no-stream-icon {
-  font-size: 3rem;
-  opacity: 0.3;
-}
-
-.matrix-display {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 1.5rem;
-}
-
-.matrix-grid {
-  display: grid;
-  gap: 1rem;
-}
-
-.matrix-item {
-  background: var(--bg-dark);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 1rem;
-}
-
-.matrix-name {
-  font-size: 0.875rem;
-  color: var(--accent);
-  margin-bottom: 0.5rem;
-  font-weight: 500;
-}
-
-.matrix-content {
-  font-family: 'Roboto Mono', 'Courier New', monospace;
-  font-size: 0.75rem;
-  color: var(--text-dim);
-  white-space: pre;
-  overflow-x: auto;
-}
-
-.info-cards {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 1rem;
-}
-
 .info-card {
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -331,33 +180,6 @@ body {
 .info-label {
   font-size: 0.875rem;
   color: var(--text-dim);
-}
-
-.empty-state {
-  text-align: center;
-  padding: 4rem 2rem;
-  color: var(--text-dim);
-}
-
-.empty-icon {
-  font-size: 4rem;
-  margin-bottom: 1rem;
-  opacity: 0.3;
-}
-
-.charts-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 1.5rem;
-}
-
-.seg-toggle-btn {
-  padding: 0.25rem 0.75rem;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  color: white;
-  cursor: pointer;
-  font-size: 0.875rem;
 }
 
 .trajectory-info {

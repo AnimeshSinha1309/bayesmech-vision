@@ -17,11 +17,14 @@ import sys
 import uuid
 import cv2
 
-# Add proto directory to path
-sys.path.append(str(Path(__file__).parent.parent))
-from proto import ar_stream_pb2
+# Add project root to path for proto imports, server root for package imports
+_server_root = Path(__file__).parent.parent
+_project_root = _server_root.parent
+sys.path.append(str(_project_root))
+sys.path.append(str(_server_root))
+from proto import perceiver_pb2, segmentation_pb2
 
-from segmentation_service import segmentation_service, encode_mask_to_base64
+from segmentation.segmentation_service import segmentation_service, encode_mask_to_base64
 
 # Setup logging
 logging.basicConfig(
@@ -61,15 +64,16 @@ async def cleanup_inactive_sessions():
         for session_id in sessions_to_remove:
             logger.info(f"Cleaning up inactive session: {session_id}")
             await segmentation_service.cleanup_session(session_id)
-            if session_id in sessions:
-                # Close WebSocket if still open
+            # Use pop() throughout: the ws.close() await above yields to the
+            # event loop, which may let the WebSocket finally-block delete the
+            # entry before we get back here — so a plain del would KeyError.
+            session = sessions.pop(session_id, None)
+            if session:
                 try:
-                    await sessions[session_id]['ws'].close()
-                except:
+                    await session['ws'].close()
+                except Exception:
                     pass
-                del sessions[session_id]
-            if session_id in session_locks:
-                del session_locks[session_id]
+            session_locks.pop(session_id, None)
 
 
 @app.on_event("startup")
@@ -192,16 +196,13 @@ async def delete_session(session_id: str):
     try:
         await segmentation_service.cleanup_session(session_id)
 
-        if session_id in sessions:
-            # Close WebSocket if still open
+        session = sessions.pop(session_id, None)
+        if session:
             try:
-                await sessions[session_id]['ws'].close()
-            except:
+                await session['ws'].close()
+            except Exception:
                 pass
-            del sessions[session_id]
-
-        if session_id in session_locks:
-            del session_locks[session_id]
+        session_locks.pop(session_id, None)
 
         logger.info(f"Deleted session: {session_id}")
 
@@ -229,7 +230,7 @@ async def stream_websocket(websocket: WebSocket, session_id: str = None):
     WebSocket endpoint for bidirectional video streaming
 
     Client sends: SegmentationRequest (binary protobuf)
-    Server sends: SegmentationOutput (binary protobuf)
+    Server sends: SegmentationResponse (binary protobuf)
 
     Query params:
         session_id: Session ID from /segment/session/start
@@ -263,7 +264,7 @@ async def stream_websocket(websocket: WebSocket, session_id: str = None):
 
             # Parse SegmentationRequest
             try:
-                request = ar_stream_pb2.SegmentationRequest()
+                request = segmentation_pb2.SegmentationRequest()
                 request.ParseFromString(data)
 
                 # Validate
@@ -273,40 +274,35 @@ async def stream_websocket(websocket: WebSocket, session_id: str = None):
 
                 # Extract RGB frame from ImageFrame
                 image_frame = request.image_frame
+                ImageFormat = perceiver_pb2.ImageFrame.ImageFormat
 
-                if image_frame.format == ar_stream_pb2.JPEG:
+                if image_frame.format == ImageFormat.JPEG:
                     # Decode JPEG
-                    import cv2
                     jpg_data = np.frombuffer(image_frame.data, dtype=np.uint8)
                     rgb_frame = cv2.imdecode(jpg_data, cv2.IMREAD_COLOR)
                     rgb_frame = cv2.cvtColor(rgb_frame, cv2.COLOR_BGR2RGB)
 
-                elif image_frame.format == ar_stream_pb2.RGB_888:
-                    # Raw RGB
+                elif image_frame.format == ImageFormat.BITMAP_RGB:
+                    # Raw RGB — infer square dimensions from data length
                     rgb_data = np.frombuffer(image_frame.data, dtype=np.uint8)
-                    rgb_frame = rgb_data.reshape(
-                        (image_frame.height, image_frame.width, 3)
-                    )
+                    total_pixels = len(rgb_data) // 3
+                    side = int(total_pixels ** 0.5)
+                    if side * side * 3 != len(rgb_data):
+                        logger.warning(f"Cannot infer dimensions for BITMAP_RGB ({len(rgb_data)} bytes)")
+                        continue
+                    rgb_frame = rgb_data.reshape((side, side, 3))
 
                 else:
                     logger.warning(f"Unsupported image format: {image_frame.format}")
                     continue
 
-                # Validate dimensions
-                if image_frame.width > 0 and image_frame.height > 0:
-                    expected_h, expected_w = rgb_frame.shape[:2]
-                    if expected_w != image_frame.width or expected_h != image_frame.height:
-                        logger.warning(
-                            f"Dimension mismatch: proto says {image_frame.width}x{image_frame.height}, "
-                            f"got {expected_w}x{expected_h}"
-                        )
-
                 # Add frame to segmentation service (async, non-blocking)
+                frame_number = request.frame_identifier.frame_number
                 asyncio.create_task(
                     segmentation_service.add_frame(
                         session_id,
                         rgb_frame,
-                        request.frame_number
+                        frame_number
                     )
                 )
 
@@ -344,17 +340,27 @@ async def broadcast_segmentation_result(
         return
 
     try:
-        # Build SegmentationOutput protobuf
-        output = ar_stream_pb2.SegmentationOutput()
-        output.session_id = session_id
-        output.frame_number = frame_number
-        output.timestamp_ms = int(time.time() * 1000)
-        output.prompt_type = prompt_type
-        output.num_objects = len(masks)
+        # Build SegmentationResponse protobuf
+        response = segmentation_pb2.SegmentationResponse()
+
+        # Set frame identifier
+        response.frame_identifier.frame_number = frame_number
+        response.frame_identifier.timestamp_ns = int(time.time() * 1e9)
+        response.frame_identifier.device_id = session_id
+
+        # Map prompt_type to trigger_type enum
+        TriggerType = segmentation_pb2.SegmentationResponse.SegmentationTriggerType
+        trigger_map = {
+            "point": TriggerType.POINT,
+            "text": TriggerType.TEXT,
+            "auto_grid": TriggerType.AUTO_GRID,
+            "auto_propagation": TriggerType.PROPAGATION,
+        }
+        response.trigger_type = trigger_map.get(prompt_type, TriggerType.UNKNOWN)
 
         # Add masks
         for obj_id_str, mask_array in masks.items():
-            mask_msg = output.masks.add()
+            mask_msg = response.masks.add()
             mask_msg.object_id = int(obj_id_str)
 
             # Encode mask to base64 PNG
@@ -369,7 +375,7 @@ async def broadcast_segmentation_result(
                 mask_msg.confidence = float(np.mean(mask_array))
 
         # Send binary protobuf
-        await sessions[session_id]['ws'].send_bytes(output.SerializeToString())
+        await sessions[session_id]['ws'].send_bytes(response.SerializeToString())
 
     except Exception as e:
         logger.warning(f"Failed to broadcast result to {session_id}: {e}")

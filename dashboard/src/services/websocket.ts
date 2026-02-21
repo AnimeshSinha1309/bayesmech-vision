@@ -1,11 +1,17 @@
-import type { DashboardMessage, ConnectionStatus } from '../types'
+import type { ConnectionStatus } from '../types'
+import { bayesmech } from '../proto/bundle'
+import { PREFIX_FRAME, PREFIX_ANNOTATION, decodeFrames, decodeAnnotations } from './proto'
 
-type MessageListener = (message: DashboardMessage) => void
+export type FrameListener = (frames: bayesmech.vision.PerceiverDataFrame[]) => void
+export type AnnotationListener = (annotations: bayesmech.vision.SegmentationResponse[]) => void
+export type StatsListener = (stats: Record<string, unknown>) => void
 type StatusListener = (status: ConnectionStatus) => void
 
 class DashboardWebSocketService {
   private ws: WebSocket | null = null
-  private messageListeners: Set<MessageListener> = new Set()
+  private frameListeners: Set<FrameListener> = new Set()
+  private annotationListeners: Set<AnnotationListener> = new Set()
+  private statsListeners: Set<StatsListener> = new Set()
   private statusListeners: Set<StatusListener> = new Set()
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private intentionalClose = false
@@ -21,9 +27,6 @@ class DashboardWebSocketService {
     this.statusListeners.forEach((cb) => cb(status))
   }
 
-  /**
-   * Opens the WebSocket connection.  If already connected, this is a no-op.
-   */
   connect(): void {
     if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
       return
@@ -33,94 +36,119 @@ class DashboardWebSocketService {
     this.setStatus('Connecting')
 
     const ws = new WebSocket(this.url)
+    ws.binaryType = 'arraybuffer'
 
     ws.onopen = () => {
       this.setStatus('Connected')
     }
 
     ws.onmessage = (event: MessageEvent) => {
-      try {
-        const message: DashboardMessage = JSON.parse(event.data)
-        this.messageListeners.forEach((cb) => cb(message))
-      } catch {
-        // Ignore non-JSON messages
+      if (event.data instanceof ArrayBuffer) {
+        this.handleBinary(new Uint8Array(event.data))
+      } else if (typeof event.data === 'string') {
+        this.handleText(event.data)
       }
     }
 
     ws.onclose = () => {
       this.setStatus('Disconnected')
       this.ws = null
-
       if (!this.intentionalClose) {
         this.scheduleReconnect()
       }
     }
 
     ws.onerror = () => {
-      // onclose will fire after onerror, so reconnect is handled there
+      // onclose will fire after onerror
     }
 
     this.ws = ws
   }
 
-  /**
-   * Closes the WebSocket connection intentionally (no auto-reconnect).
-   */
   disconnect(): void {
     this.intentionalClose = true
-
     if (this.reconnectTimer !== null) {
       clearTimeout(this.reconnectTimer)
       this.reconnectTimer = null
     }
-
     if (this.ws) {
       this.ws.close()
       this.ws = null
     }
-
     this.setStatus('Disconnected')
   }
 
-  /**
-   * Request the latest stream stats from the server.
-   */
+  // ---- Send control messages ----
+
   getStats(): void {
     this.send({ action: 'get_stats' })
   }
 
-  /**
-   * Request the latest frame to be resent.
-   */
-  getLatest(): void {
-    this.send({ action: 'get_latest' })
+  seek(start: number, end: number): void {
+    this.send({ action: 'seek', start, end })
   }
 
-  /**
-   * Registers a callback invoked for every incoming WebSocket message.
-   * Returns an unsubscribe function.
-   */
-  addMessageListener(cb: MessageListener): () => void {
-    this.messageListeners.add(cb)
-    return () => {
-      this.messageListeners.delete(cb)
-    }
+  getAnnotations(): void {
+    this.send({ action: 'get_annotations' })
   }
 
-  /**
-   * Registers a callback invoked when the connection status changes.
-   * Returns an unsubscribe function.
-   */
+  getAnnotationForFrame(frameNumber: number): void {
+    this.send({ action: 'get_annotations', frame_number: frameNumber })
+  }
+
+  // ---- Listeners ----
+
+  addFrameListener(cb: FrameListener): () => void {
+    this.frameListeners.add(cb)
+    return () => { this.frameListeners.delete(cb) }
+  }
+
+  addAnnotationListener(cb: AnnotationListener): () => void {
+    this.annotationListeners.add(cb)
+    return () => { this.annotationListeners.delete(cb) }
+  }
+
+  addStatsListener(cb: StatsListener): () => void {
+    this.statsListeners.add(cb)
+    return () => { this.statsListeners.delete(cb) }
+  }
+
   addStatusListener(cb: StatusListener): () => void {
     this.statusListeners.add(cb)
-    // Immediately notify with current status
     cb(this._status)
-    return () => {
-      this.statusListeners.delete(cb)
+    return () => { this.statusListeners.delete(cb) }
+  }
+
+  // ---- Internal ----
+
+  private handleBinary(buf: Uint8Array): void {
+    if (buf.length < 2) return
+    const prefix = buf[0]
+    const payload = buf.subarray(1)
+
+    if (prefix === PREFIX_FRAME) {
+      const frames = decodeFrames(payload)
+      if (frames.length > 0) {
+        this.frameListeners.forEach((cb) => cb(frames))
+      }
+    } else if (prefix === PREFIX_ANNOTATION) {
+      const annotations = decodeAnnotations(payload)
+      if (annotations.length > 0) {
+        this.annotationListeners.forEach((cb) => cb(annotations))
+      }
     }
   }
 
-  // ---- Private helpers ----
+  private handleText(data: string): void {
+    try {
+      const msg = JSON.parse(data)
+      if (msg.type === 'stats') {
+        this.statsListeners.forEach((cb) => cb(msg))
+      }
+    } catch {
+      // Ignore non-JSON
+    }
+  }
 
   private send(data: unknown): void {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {

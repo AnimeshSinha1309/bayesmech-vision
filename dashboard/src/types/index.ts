@@ -1,4 +1,12 @@
-// === Vector types ===
+// Re-export proto types for convenience
+import { bayesmech } from '../proto/bundle'
+
+export type PerceiverDataFrame = bayesmech.vision.PerceiverDataFrame
+export type IPerceiverDataFrame = bayesmech.vision.IPerceiverDataFrame
+export type SegmentationResponse = bayesmech.vision.SegmentationResponse
+export type ISegmentationResponse = bayesmech.vision.ISegmentationResponse
+
+// === Legacy interfaces used by existing components ===
 
 export interface Vec3 {
   x: number
@@ -12,8 +20,6 @@ export interface Quaternion {
   z: number
   w: number
 }
-
-// === Camera & IMU ===
 
 export interface CameraPose {
   position: Vec3
@@ -43,24 +49,6 @@ export interface InferredGeometry {
   point_cloud_count: number
 }
 
-// === WebSocket incoming messages ===
-
-export interface FrameUpdateMessage {
-  type: 'frame_update'
-  source: string
-  device_id: string
-  timestamp_ns: number
-  frame_number: number
-  rgb_frame?: string
-  depth_frame?: string
-  camera_pose?: CameraPose
-  camera_intrinsics?: CameraIntrinsics
-  imu?: ImuData
-  inferred_geometry?: InferredGeometry
-}
-
-export type DashboardMessage = FrameUpdateMessage
-
 // === Chart data ===
 
 export interface ChartPoint {
@@ -74,10 +62,6 @@ export interface TrajectoryPoint {
   x: number
   y: number
 }
-
-// === Theme ===
-
-export type ThemeMode = 'light' | 'dark'
 
 // === Connection ===
 
@@ -99,4 +83,39 @@ export interface RecordingInfo {
   filename: string
   size_mb: number
   modified: number
+}
+
+// === Decoded frame for UI consumption ===
+
+export interface DecodedFrame {
+  source: string
+  device_id: string
+  timestamp_ns: number
+  frame_number: number
+  rgbBlobUrl?: string
+  depthBlobUrl?: string
+  hasDepthData?: boolean   // true when depth_frame bytes are present in the proto
+  camera_pose?: CameraPose
+  camera_intrinsics?: CameraIntrinsics
+  imu?: ImuData
+  inferred_geometry?: InferredGeometry
+}
+
+// === Signal coverage over a rolling window of frames ===
+
+export interface CoverageStats {
+  windowSize: number        // number of frames in the rolling window
+  depth: number             // 0-100%
+  pose: number
+  linearAccel: number
+  angularVelocity: number
+  gravity: number
+  magneticField: number
+  intrinsicsCount: number   // cumulative frames that carried intrinsics
+  geometry: number
+}
+
+export interface DecodedAnnotation {
+  frameNumber: number
+  blobUrl: string
 }

@@ -10,5 +10,5 @@ proto/*_pb2_grpc.py
 
 # Log and savedata files
 recordings/
-segmentation/models/
-segmentation/output/
+server/segmentation/models/
+server/segmentation/output/
